@@ -344,6 +344,72 @@ public:
         }
     }
 
+    /// Changes the text of a block that is already on screen.
+    ///
+    /// Writing the Text property works only while the widget is being created, because the
+    /// value is read once when Slate builds the widget and cached there afterwards. Setting
+    /// it later stores a string in the object that nothing ever looks at again, which is why
+    /// the status panel drew its background and its rule and no text at all.
+    ///
+    /// Calling the engine's own setter is what pushes the value through to Slate. It is
+    /// resolved against TextBlock specifically, because SetText exists on several unrelated
+    /// classes and calling the wrong one is a crash rather than a wrong result.
+    void SetTextLive(std::uintptr_t block, std::string_view value) const {
+        if (block == 0 || context_.set_text == 0 || context_.convert_function == 0 ||
+            context_.text_library == 0) {
+            return;
+        }
+        std::wstring wide;
+        wide.reserve(value.size() + 1);
+        for (const char character : value) {
+            wide.push_back(static_cast<wchar_t>(character));
+        }
+        wide.push_back(L'\0');
+
+        struct ConvertParameters {
+            struct {
+                wchar_t*     data;
+                std::int32_t count;
+                std::int32_t capacity;
+            } input;
+            std::uint8_t result[0x10];
+        };
+        ConvertParameters convert{};
+        convert.input.data     = wide.data();
+        convert.input.count    = static_cast<std::int32_t>(wide.size());
+        convert.input.capacity = convert.input.count;
+        if (!CallFunction(context_.text_library, context_.convert_function, &convert).ok()) {
+            return;
+        }
+
+        struct TextParameters {
+            std::uint8_t text[0x10];
+        };
+        TextParameters parameters{};
+        std::memcpy(parameters.text, convert.result, sizeof(parameters.text));
+        (void)CallFunction(block, context_.set_text, &parameters);
+    }
+
+    /// Changes the colour of a block that is already on screen, for the same reason.
+    ///
+    /// The buffer is larger than FSlateColor needs, which is safe: the engine copies only as
+    /// many bytes as the function declares, and a buffer that is too small is the dangerous
+    /// direction.
+    void SetColourLive(std::uintptr_t block, LinearColour colour) const {
+        if (block == 0 || context_.set_color_and_opacity == 0) {
+            return;
+        }
+        struct ColourParameters {
+            LinearColour colour;
+            std::uint8_t rule;
+            std::uint8_t padding[7];
+        };
+        ColourParameters parameters{};
+        parameters.colour = colour;
+        parameters.rule   = 0; // UseColor_Specified
+        (void)CallFunction(block, context_.set_color_and_opacity, &parameters);
+    }
+
     void SetVisibilityOf(std::uintptr_t widget, std::uint8_t visibility) const {
         if (context_.set_visibility == 0 || widget == 0) {
             return;
@@ -1640,11 +1706,12 @@ void SetLobbyServers(const LobbyUIContext& context, const std::vector<ServerEntr
         }
 
         const ServerEntry& entry = servers[index];
-        builder.SetText(row.name, entry.name);
-        builder.SetText(row.mode, entry.mode);
-        builder.SetText(row.map, entry.map);
-        builder.SetText(row.players, std::format("{}/{}", entry.players, entry.capacity));
-        builder.SetText(row.ping, std::format("{}ms", entry.ping));
+        builder.SetTextLive(row.name, entry.name);
+        builder.SetTextLive(row.mode, entry.mode);
+        builder.SetTextLive(row.map, entry.map);
+        builder.SetTextLive(row.players,
+                            std::format("{}/{}", entry.players, entry.capacity));
+        builder.SetTextLive(row.ping, std::format("{}ms", entry.ping));
     }
 
     builder.SetVisibilityOf(g_empty_notice,
@@ -1667,7 +1734,7 @@ void SetLobbyServers(const LobbyUIContext& context, const std::vector<ServerEntr
                               servers[static_cast<std::size_t>(selected)].ping)}
             : std::array<std::string, 5>{"No server selected", "", "", "", ""};
     for (std::size_t line = 0; line < lines.size(); ++line) {
-        builder.SetText(g_detail_line[line], lines[line]);
+        builder.SetTextLive(g_detail_line[line], lines[line]);
         builder.SetVisibilityOf(g_detail_line[line], kHitTestInvisible);
     }
 }
@@ -1683,15 +1750,14 @@ void SetLobbyStatus(const LobbyUIContext& context, const LobbyStatus& status) {
                     status.version);
     }
 
-    builder.SetText(g_status_line[0], status.online ? "NET: ONLINE" : "NET: OFFLINE");
-    builder.SetTextAppearance(g_status_line[0], status.online ? kGood : kBad, 19.0F);
+    builder.SetTextLive(g_status_line[0], status.online ? "NET: ONLINE" : "NET: OFFLINE");
+    builder.SetColourLive(g_status_line[0], status.online ? kGood : kBad);
 
-    builder.SetText(g_status_line[1], std::format("SESSION: {}", status.session));
-    builder.SetTextAppearance(g_status_line[1], status.invitable ? kGood : kText, 19.0F);
+    builder.SetTextLive(g_status_line[1], std::format("SESSION: {}", status.session));
+    builder.SetColourLive(g_status_line[1], status.invitable ? kGood : kText);
 
-    builder.SetText(g_status_line[2], status.version);
-    builder.SetTextAppearance(g_status_line[2],
-                              status.update_available ? kWarn : kText, 19.0F);
+    builder.SetTextLive(g_status_line[2], status.version);
+    builder.SetColourLive(g_status_line[2], status.update_available ? kWarn : kText);
 
     for (const std::uintptr_t line : g_status_line) {
         builder.SetVisibilityOf(line, kHitTestInvisible);
