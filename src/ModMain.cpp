@@ -1238,6 +1238,29 @@ void EnsureSessionHosted() {
     options.visibility  = lobby::LobbyVisibility::Public;
     options.max_players = static_cast<std::uint32_t>(LobbyState::kMaxPlayers);
 
+    // Carried from what the player chose on the lobby screen. These are validated before
+    // the session is created, so leaving them at their defaults meant hosting was refused
+    // for an empty scenario no matter what the screen showed.
+    options.settings.mode = g_lobby.mode == "SLAYER" ? engine::GameMode::TeamSlayer
+                                                     : engine::GameMode::CaptureTheFlag;
+    options.settings.scenario     = g_lobby.scenario;
+    options.settings.variant_name = g_lobby.scenario;
+    options.settings.team_count   = g_lobby.teams ? 2 : 1;
+    options.settings.friendly_fire = g_lobby.friendly_fire;
+    options.settings.respawn_enabled = true;
+    options.settings.respawn_delay_seconds =
+        static_cast<std::uint16_t>(g_lobby.respawn_seconds);
+    options.settings.time_limit_seconds =
+        static_cast<std::uint16_t>(g_lobby.game_time_minutes * 60);
+
+    // Capture the Flag is a team mode, so a free for all lobby cannot host it. Validation
+    // would reject the pair; correcting it here keeps the refusal impossible rather than
+    // merely reported.
+    if (options.settings.mode == engine::GameMode::CaptureTheFlag &&
+        options.settings.team_count < 2) {
+        options.settings.team_count = 2;
+    }
+
     if (const Result hosted = g_state->manager->HostSession(options); !hosted.ok()) {
         MPE_LOG_WARN("the multiplayer session could not be hosted: {}", hosted.message());
         return;
