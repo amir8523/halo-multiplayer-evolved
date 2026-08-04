@@ -134,6 +134,39 @@ DWORD WINAPI LoadModThread(LPVOID) {
         return 1;
     }
 
+    // Apply a downloaded update before anything is loaded.
+    //
+    // This is the only moment the mod's DLL is not mapped into the process, and therefore
+    // the only moment Windows will allow it to be replaced. The mod downloads a new build
+    // while the game runs and leaves it alongside as a .pending file; here it simply
+    // becomes the mod.
+    //
+    // The old build is kept as .backup rather than deleted, so a bad update can be undone by
+    // hand without downloading anything, and the swap is skipped entirely if the replace
+    // fails, which leaves the working build in place.
+    wchar_t pending_path[MAX_PATH] = {};
+    if (swprintf_s(pending_path, MAX_PATH, L"%s%s.pending", module_path, kModFileName) > 0 &&
+        ::GetFileAttributesW(pending_path) != INVALID_FILE_ATTRIBUTES) {
+        wchar_t backup_path[MAX_PATH] = {};
+        if (swprintf_s(backup_path, MAX_PATH, L"%s%s.backup", module_path, kModFileName) > 0) {
+            ::DeleteFileW(backup_path);
+            if (::GetFileAttributesW(mod_path) != INVALID_FILE_ATTRIBUTES) {
+                ::MoveFileW(mod_path, backup_path);
+            }
+            if (::MoveFileW(pending_path, mod_path) != FALSE) {
+                LogLine(L"applied a downloaded update; the previous build is kept as %s.backup",
+                        kModFileName);
+            } else {
+                // Put the working build back rather than leaving nothing to load.
+                ::MoveFileW(backup_path, mod_path);
+                ::DeleteFileW(pending_path);
+                LogLine(L"a downloaded update could not be applied (%lu); keeping the current "
+                        L"build",
+                        ::GetLastError());
+            }
+        }
+    }
+
     if (::GetFileAttributesW(mod_path) == INVALID_FILE_ATTRIBUTES) {
         LogLine(L"%s was not found next to the game executable; the game will run unmodded",
                 kModFileName);
