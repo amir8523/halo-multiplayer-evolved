@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/ObjectArray.h
+// MultiplayerEvolved: Unreal/ObjectArray.h
 //
 // Locates UE5's global UObject array and reads live objects out of it.
 //
@@ -63,7 +63,7 @@
 #include "Core/Result.h"
 #include "Unreal/NamePool.h"
 
-namespace fe::unreal {
+namespace mpe::unreal {
 
 /// Elements per chunk in FChunkedFixedUObjectArray. An engine constant.
 inline constexpr std::uint32_t kElementsPerChunk = 64 * 1024;
@@ -175,4 +175,4 @@ private:
     std::uintptr_t  array_address_{0};
 };
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

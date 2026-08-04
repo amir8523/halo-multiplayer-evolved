@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Map/MapVariant.h
+// MultiplayerEvolved: Map/MapVariant.h
 //
 // In memory model of a custom map layout.
 //
@@ -34,7 +34,7 @@
 
 #include "Engine/IEngineControl.h"
 
-namespace fe::map {
+namespace mpe::map {
 
 /// Bumped only for an incompatible change. The parser accepts any version in
 /// [kMinSupportedSchemaVersion, kSchemaVersion] and upgrades older documents in
@@ -221,4 +221,4 @@ struct MapVariant {
                                              std::uint8_t team) const noexcept;
 };
 
-} // namespace fe::map
+} // namespace mpe::map

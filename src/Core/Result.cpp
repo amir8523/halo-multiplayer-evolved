@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Result.cpp
+// MultiplayerEvolved: Core/Result.cpp
 #include "Core/Result.h"
 
-namespace fe {
+namespace mpe {
 
 std::string_view ToString(ErrorCode code) noexcept {
     switch (code) {
@@ -40,4 +40,4 @@ std::string_view ToString(ErrorCode code) noexcept {
     return "Unknown";
 }
 
-} // namespace fe
+} // namespace mpe

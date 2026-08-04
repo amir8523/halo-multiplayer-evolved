@@ -3,7 +3,7 @@
 
   "name": "Example Canyon",
   "description": "Reference layout demonstrating every element the parser accepts. Symmetric two base CTF and Slayer.",
-  "author_name": "ForgeEvolved",
+  "author_name": "MultiplayerEvolved",
   "base_scenario": "levels/multiplayer/canyon/canyon",
 
   "supported_modes": ["slayer", "team_slayer", "capture_the_flag", "king_of_the_hill"],

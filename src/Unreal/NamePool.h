@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/NamePool.h
+// MultiplayerEvolved: Unreal/NamePool.h
 //
 // Locates Unreal Engine 5's FName pool inside the running executable and resolves
 // name indices to text.
@@ -53,7 +53,7 @@
 
 #include "Core/Result.h"
 
-namespace fe::unreal {
+namespace mpe::unreal {
 
 /// UE5 constants. These are compile time constants of the engine, not addresses, so
 /// they are stable across builds of the same engine major version.
@@ -123,4 +123,4 @@ private:
     std::uintptr_t blocks_address_{0}; ///< Address of Blocks[0].
 };
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

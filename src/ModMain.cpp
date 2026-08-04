@@ -1,5 +1,5 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: ModMain.cpp
+// MultiplayerEvolved: ModMain.cpp
 //
 // Process entry point, dependency wiring and the tick loop.
 //
@@ -21,12 +21,12 @@
 //
 // PUBLIC C API
 //
-// The exported FE_* functions are the surface a UI layer, a script host or a
+// The exported MPE_* functions are the surface a UI layer, a script host or a
 // community front end drives. A flat C ABI is used deliberately: it is callable
 // from any language, and it keeps the C++ types out of the boundary so a UI built
 // against one mod version keeps working against the next.
 
-#define FE_LOG_CATEGORY "Mod"
+#define MPE_LOG_CATEGORY "Mod"
 
 #include "Blam/DebugGlobals.h"
 #include "Blam/ModuleImage.h"
@@ -68,7 +68,7 @@
 
 #include "Unreal/ProcessMemory.h"
 
-namespace fe {
+namespace mpe {
 namespace {
 
 /// Tick rate for the mod loop. 60 Hz matches the rate the lobby advertises in the
@@ -91,13 +91,13 @@ constexpr auto kSteamHostWait = std::chrono::seconds(45);
 class LoggingEventSink final : public lobby::ILobbyEventSink {
 public:
     void OnPhaseChanged(lobby::LobbyPhase previous, lobby::LobbyPhase current) override {
-        FE_LOG_INFO("lobby phase {} -> {}", lobby::ToString(previous), lobby::ToString(current));
+        MPE_LOG_INFO("lobby phase {} -> {}", lobby::ToString(previous), lobby::ToString(current));
     }
 
     void OnSnapshotChanged(const lobby::LobbySnapshot& snapshot) override {
         // Logged at trace: this fires on every roster or progress change and would
         // drown the log at a higher level.
-        FE_LOG_TRACE("snapshot: phase={} players={} ready={} countdown={} map={:.0f}%",
+        MPE_LOG_TRACE("snapshot: phase={} players={} ready={} countdown={} map={:.0f}%",
                      lobby::ToString(snapshot.phase), snapshot.players.size(),
                      snapshot.ReadyCount(), snapshot.countdown_seconds,
                      snapshot.map_transfer_progress * 100.0f);
@@ -105,13 +105,13 @@ public:
 
     void OnChatMessage(lobby::PlatformId author, std::string_view display_name,
                        std::string_view text) override {
-        FE_LOG_INFO("chat {}: {}", display_name.empty() ? std::to_string(author)
+        MPE_LOG_INFO("chat {}: {}", display_name.empty() ? std::to_string(author)
                                                         : std::string(display_name),
                     text);
     }
 
     void OnError(const Error& error) override {
-        FE_LOG_ERROR("lobby error [{}]: {}", ToString(error.code), error.message);
+        MPE_LOG_ERROR("lobby error [{}]: {}", ToString(error.code), error.message);
     }
 };
 
@@ -284,7 +284,7 @@ void StartUpdateCheck() {
         const Expected<update::ReleaseInfo> release =
             update::FetchLatestRelease(kReleaseRepository);
         if (!release.ok()) {
-            FE_LOG_INFO("update check skipped: {}", release.message());
+            MPE_LOG_INFO("update check skipped: {}", release.message());
             return;
         }
 
@@ -293,10 +293,10 @@ void StartUpdateCheck() {
             g_latest_version = release.value().version;
         }
         if (!update::IsNewer(release.value().version, kModVersion)) {
-            FE_LOG_INFO("this build is current ({})", kModVersion);
+            MPE_LOG_INFO("this build is current ({})", kModVersion);
             return;
         }
-        FE_LOG_INFO("an update is available: {} (this build is {})", release.value().version,
+        MPE_LOG_INFO("an update is available: {} (this build is {})", release.value().version,
                     kModVersion);
 
         // Fetched now and applied at the next start, because the running DLL cannot replace
@@ -312,7 +312,7 @@ void StartUpdateCheck() {
         g_update_progress = -1;
         g_update_ready    = downloaded.ok();
         if (!downloaded.ok()) {
-            FE_LOG_WARN("the update could not be downloaded: {}", downloaded.message());
+            MPE_LOG_WARN("the update could not be downloaded: {}", downloaded.message());
         }
     }).detach();
 }
@@ -450,7 +450,7 @@ HMODULE                  g_self_module = nullptr;
 
 /// Directory holding the mod's data files, next to the game binary.
 [[nodiscard]] std::filesystem::path DataDirectory() {
-    return std::filesystem::path(ExecutableDirectory()) / "ForgeEvolved";
+    return std::filesystem::path(ExecutableDirectory()) / "MultiplayerEvolved";
 }
 
 /// Waits for the Blam simulation module to be loaded by the game shell.
@@ -503,14 +503,14 @@ HMODULE                  g_self_module = nullptr;
         if (loaded.ok()) {
             config = std::move(loaded).value();
         } else {
-            FE_LOG_WARN("using built in symbol defaults: {}", loaded.message());
+            MPE_LOG_WARN("using built in symbol defaults: {}", loaded.message());
         }
     } else {
-        FE_LOG_INFO("no descriptor at {}, using built in defaults", descriptor.string());
+        MPE_LOG_INFO("no descriptor at {}, using built in defaults", descriptor.string());
     }
 
     if (config.game_build != GameBuildString()) {
-        FE_LOG_WARN("the symbol descriptor targets build '{}' but this game is '{}'; discovery "
+        MPE_LOG_WARN("the symbol descriptor targets build '{}' but this game is '{}'; discovery "
                     "will still be validated against the running binary",
                     config.game_build, GameBuildString());
     }
@@ -523,7 +523,7 @@ HMODULE                  g_self_module = nullptr;
     state.symbols = std::move(registry).value();
     state.globals.emplace(*state.symbols);
 
-    FE_LOG_INFO("engine binding resolved: {} symbol(s) available", state.symbols->Count());
+    MPE_LOG_INFO("engine binding resolved: {} symbol(s) available", state.symbols->Count());
 
     // Count what is actually controllable, separating writable globals from string
     // ids. The distinction decides what this mod can and cannot do, so it belongs in
@@ -537,7 +537,7 @@ HMODULE                  g_self_module = nullptr;
             ++string_ids;
         }
     }
-    FE_LOG_INFO("controllable surface: {} writable global(s), {} read only string id(s)",
+    MPE_LOG_INFO("controllable surface: {} writable global(s), {} read only string id(s)",
                 writable, string_ids);
 
     // Self test the write path against a debug visualization boolean, chosen because
@@ -545,8 +545,8 @@ HMODULE                  g_self_module = nullptr;
     // reads back, and restores. Knowing the record layout is right beats assuming it.
     if (const Result verified = state.globals->VerifyWritePath("debug_damage_verbose");
         !verified.ok()) {
-        FE_LOG_ERROR("global write path self test FAILED: {}", verified.message());
-        FE_LOG_ERROR("globals will be readable but writes are not trusted on this build");
+        MPE_LOG_ERROR("global write path self test FAILED: {}", verified.message());
+        MPE_LOG_ERROR("globals will be readable but writes are not trusted on this build");
         state.globals.reset();
     }
 
@@ -560,8 +560,8 @@ HMODULE                  g_self_module = nullptr;
 void ResolveEngineBinding() {
     Expected<blam::ModuleImage> image = WaitForSimulationModule();
     if (!image.ok()) {
-        FE_LOG_ERROR("{}", image.message());
-        FE_LOG_ERROR("the engine surface is unavailable. The lobby and Steam layers are "
+        MPE_LOG_ERROR("{}", image.message());
+        MPE_LOG_ERROR("the engine surface is unavailable. The lobby and Steam layers are "
                      "unaffected; hosting a match is not possible.");
         return;
     }
@@ -576,8 +576,8 @@ void ResolveEngineBinding() {
     g_state->simulation_module = std::move(image).value();
 
     if (const std::string failure = CommitEngineBinding(*g_state); !failure.empty()) {
-        FE_LOG_ERROR("{}", failure);
-        FE_LOG_ERROR("report this log along with the game version so a symbol descriptor can "
+        MPE_LOG_ERROR("{}", failure);
+        MPE_LOG_ERROR("report this log along with the game version so a symbol descriptor can "
                      "be added for this build.");
         g_state->symbols.reset();
         g_state->globals.reset();
@@ -616,7 +616,7 @@ void ResolveEngineBinding() {
     }
 
     if (!steam_ready) {
-        FE_LOG_INFO("the host application did not initialize Steam within {} s; this process "
+        MPE_LOG_INFO("the host application did not initialize Steam within {} s; this process "
                     "will take ownership of it",
                     std::chrono::duration_cast<std::chrono::seconds>(kSteamHostWait).count());
         while (std::chrono::steady_clock::now() < deadline) {
@@ -727,7 +727,7 @@ void TickLoop() {
                 const lobby::LobbyPhase now = g_state->manager->Phase();
                 if (now != s_phase) {
                     s_phase = now;
-                    FE_LOG_INFO("session phase is now {} (lobby {}, error '{}')",
+                    MPE_LOG_INFO("session phase is now {} (lobby {}, error '{}')",
                                 static_cast<int>(now),
                                 g_state->manager->Snapshot().lobby_id,
                                 g_state->manager->Snapshot().last_error);
@@ -755,7 +755,7 @@ void TickLoop() {
 
             switch (action) {
                 case unreal::LobbyAction::None:
-                    FE_LOG_INFO("MULTIPLAYER clicked");
+                    MPE_LOG_INFO("MULTIPLAYER clicked");
                     OnMultiplayerClicked();
                     break;
                 case unreal::LobbyAction::ShowHost:
@@ -856,7 +856,7 @@ void TickLoop() {
         // A trap that has run away is disarmed here rather than in the handler, because
         // disarming suspends every thread and the handler is running on one of them.
         if (debugtrap::OverBudget()) {
-            FE_LOG_WARN("a hardware trap exceeded its recording budget and is being "
+            MPE_LOG_WARN("a hardware trap exceeded its recording budget and is being "
                         "disarmed; the address it watched is called too often to trace "
                         "this way");
             debugtrap::DisarmAll();
@@ -954,14 +954,14 @@ void RegisterWatch(std::string label, std::uintptr_t instance_address,
     }
 
     if (rebound == 0) {
-        FE_LOG_INFO("watch: {} retired; its object was collected and no distinct {} instance "
+        MPE_LOG_INFO("watch: {} retired; its object was collected and no distinct {} instance "
                     "of the class remains",
                     field.label, want_default ? "default" : "live");
         field.valid = false;
         return false;
     }
 
-    FE_LOG_INFO("watch: {} rebound from a collected object at 0x{:X} to 0x{:X}", field.label,
+    MPE_LOG_INFO("watch: {} rebound from a collected object at 0x{:X} to 0x{:X}", field.label,
                 field.instance_address, rebound);
     field.instance_address = rebound;
     field.address          = rebound + field.byte_offset;
@@ -978,7 +978,7 @@ void RegisterWatch(std::string label, std::uintptr_t instance_address,
 int LogObjectsMatching(std::string_view fragment, std::size_t limit) {
     std::lock_guard lock(g_state_mutex);
     if (!g_state || !g_state->objects.has_value()) {
-        FE_LOG_WARN("the object array is not available yet");
+        MPE_LOG_WARN("the object array is not available yet");
         return 0;
     }
 
@@ -988,9 +988,9 @@ int LogObjectsMatching(std::string_view fragment, std::size_t limit) {
         return 0;
     }
 
-    FE_LOG_INFO("'{}' matched {} live object(s):", fragment, found.size());
+    MPE_LOG_INFO("'{}' matched {} live object(s):", fragment, found.size());
     for (const unreal::ObjectInfo& object : found) {
-        FE_LOG_INFO("  {} : {} @ 0x{:X}", object.name, object.class_name, object.address);
+        MPE_LOG_INFO("  {} : {} @ 0x{:X}", object.name, object.class_name, object.address);
     }
     return static_cast<int>(found.size());
 }
@@ -1053,13 +1053,13 @@ int LogObjectsMatching(std::string_view fragment, std::size_t limit) {
         "48 8D 05 ? ? ? ? C7 05 ? ? ? ? E8 03 00 00", 3, 7);
 
     if (pool_address == 0 || array_address == 0) {
-        FE_LOG_INFO("fast reflection unavailable; falling back to the search");
+        MPE_LOG_INFO("fast reflection unavailable; falling back to the search");
         return false;
     }
 
     Expected<unreal::NamePool> pool = unreal::NamePool::FromBlocks(pool_address);
     if (!pool.ok()) {
-        FE_LOG_WARN("fast pool rejected: {}", pool.error().message);
+        MPE_LOG_WARN("fast pool rejected: {}", pool.error().message);
         return false;
     }
 
@@ -1072,7 +1072,7 @@ int LogObjectsMatching(std::string_view fragment, std::size_t limit) {
     Expected<unreal::ObjectArray> objects =
         unreal::ObjectArray::FromAddress(*g_state->names, array_address);
     if (!objects.ok()) {
-        FE_LOG_WARN("fast object array rejected: {}", objects.error().message);
+        MPE_LOG_WARN("fast object array rejected: {}", objects.error().message);
         g_state->names.reset();
         return false;
     }
@@ -1096,13 +1096,13 @@ void OnMultiplayerClicked() {
     // resolved once and cached, so a press costs two guarded reads and the widget calls
     // themselves.
     if (!g_lobby_ui_ready || g_live_menu == 0) {
-        FE_LOG_WARN("multiplayer was pressed before the lobby was ready to open");
+        MPE_LOG_WARN("multiplayer was pressed before the lobby was ready to open");
         return;
     }
 
     unreal::LobbyUIContext ui = g_lobby_ui;
     if (const Result bound = unreal::BindLobbyMenu(g_live_menu, ui); !bound.ok()) {
-        FE_LOG_WARN("the lobby cannot attach to menu 0x{:X}: {}", g_live_menu,
+        MPE_LOG_WARN("the lobby cannot attach to menu 0x{:X}: {}", g_live_menu,
                     bound.message());
         return;
     }
@@ -1114,7 +1114,7 @@ void OnMultiplayerClicked() {
         // A real session behind the screen, so the slots have something to invite into and
         // the browser has something to list.
         EnsureSessionHosted();
-        FE_LOG_INFO("multiplayer lobby shown");
+        MPE_LOG_INFO("multiplayer lobby shown");
         return;
     }
 
@@ -1159,7 +1159,7 @@ void OnMultiplayerClicked() {
         20000);
 
     if (!ran.ok() || !outcome.ok()) {
-        FE_LOG_WARN("could not open the multiplayer lobby: {}",
+        MPE_LOG_WARN("could not open the multiplayer lobby: {}",
                     ran.ok() ? outcome.message() : ran.message());
         return;
     }
@@ -1175,13 +1175,13 @@ void OnMultiplayerClicked() {
             ++watched;
         }
     }
-    FE_LOG_INFO("{} of {} lobby button(s) are live", watched, g_lobby_controls.size());
+    MPE_LOG_INFO("{} of {} lobby button(s) are live", watched, g_lobby_controls.size());
 
     // Read back a second later what size the layout actually gave the screen. A lobby that
     // reports its real size and still looks empty is a different fault from one the layout
     // collapsed to nothing, and from a blank screen the two look identical.
     g_lobby_measure_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-    FE_LOG_INFO("multiplayer lobby open (root 0x{:X})", lobby_root);
+    MPE_LOG_INFO("multiplayer lobby open (root 0x{:X})", lobby_root);
 }
 
 /// Switches tab without rebuilding anything.
@@ -1212,7 +1212,7 @@ void CaptureServerName() {
     (void)unreal::RunOnGameThread([&]() { typed = unreal::ReadServerName(ui); }, 5000);
     if (!typed.empty()) {
         g_lobby.server_name = typed;
-        FE_LOG_INFO("server name is '{}'", g_lobby.server_name);
+        MPE_LOG_INFO("server name is '{}'", g_lobby.server_name);
     }
 }
 
@@ -1224,7 +1224,7 @@ void CaptureServerName() {
 void EnsureSessionHosted() {
     std::lock_guard lock(g_state_mutex);
     if (!g_state || !g_state->manager) {
-        FE_LOG_WARN("no session can be hosted: networking is unavailable");
+        MPE_LOG_WARN("no session can be hosted: networking is unavailable");
         return;
     }
     if (g_state->manager->Phase() != lobby::LobbyPhase::Idle) {
@@ -1239,10 +1239,10 @@ void EnsureSessionHosted() {
     options.max_players = static_cast<std::uint32_t>(LobbyState::kMaxPlayers);
 
     if (const Result hosted = g_state->manager->HostSession(options); !hosted.ok()) {
-        FE_LOG_WARN("the multiplayer session could not be hosted: {}", hosted.message());
+        MPE_LOG_WARN("the multiplayer session could not be hosted: {}", hosted.message());
         return;
     }
-    FE_LOG_INFO("multiplayer session hosted for up to {} players",
+    MPE_LOG_INFO("multiplayer session hosted for up to {} players",
                 options.max_players);
 }
 
@@ -1260,7 +1260,7 @@ void OpenSessionInvite() {
     {
         std::lock_guard lock(g_state_mutex);
         if (!g_state || !g_state->manager) {
-            FE_LOG_WARN("cannot invite: networking is unavailable");
+            MPE_LOG_WARN("cannot invite: networking is unavailable");
             g_invite_pending = false;
             return;
         }
@@ -1276,11 +1276,11 @@ void OpenSessionInvite() {
     g_invite_pending = false;
     PublishSessionDetails();
     steam::ActivateGameOverlayInviteDialog(lobby);
-    FE_LOG_INFO("invite overlay opened for session {}", lobby);
+    MPE_LOG_INFO("invite overlay opened for session {}", lobby);
 }
 
 void InviteToSession(int team) {
-    FE_LOG_INFO("inviting a player to the {} team of this multiplayer session",
+    MPE_LOG_INFO("inviting a player to the {} team of this multiplayer session",
                 team == 0 ? "red" : "blue");
     EnsureSessionHosted();
     g_invite_pending = true;
@@ -1327,7 +1327,7 @@ void PublishSessionDetails() {
     (void)steam::SetLobbyData(lobby, "map", g_lobby.scenario.c_str());
     (void)steam::SetLobbyData(
         lobby, "capacity", std::to_string(LobbyState::kMaxPlayers).c_str());
-    FE_LOG_INFO("session advertised as '{}' ({} on {})", name, g_lobby.mode,
+    MPE_LOG_INFO("session advertised as '{}' ({} on {})", name, g_lobby.mode,
                 g_lobby.scenario);
 }
 
@@ -1442,7 +1442,7 @@ void ApplyServerFilter() {
             unreal::SetLobbyFilters(ui, g_server_filter);
         },
         5000);
-    FE_LOG_INFO("server filter applied: {} of {} server(s) match (mode '{}', slots {}, "
+    MPE_LOG_INFO("server filter applied: {} of {} server(s) match (mode '{}', slots {}, "
                 "ping {})",
                 matching.size(), DiscoveredServers().size(),
                 g_server_filter.mode.empty() ? "any" : g_server_filter.mode,
@@ -1451,7 +1451,7 @@ void ApplyServerFilter() {
 
 /// Marks the chosen mode on screen without rebuilding.
 void SelectLobbyMode(bool slayer) {
-    FE_LOG_INFO("mode is now {}", g_lobby.mode);
+    MPE_LOG_INFO("mode is now {}", g_lobby.mode);
     if (!g_lobby_ui_ready) {
         return;
     }
@@ -1468,7 +1468,7 @@ void SelectLobbyMap(int map_index) {
         return;
     }
     g_lobby.scenario = unreal::kLobbyMaps[map_index].scenario;
-    FE_LOG_INFO("map is now {}", g_lobby.scenario);
+    MPE_LOG_INFO("map is now {}", g_lobby.scenario);
 
     if (!g_lobby_ui_ready) {
         return;
@@ -1529,7 +1529,7 @@ void PrepareLobby() {
         20000);
 
     if (!ran.ok() || !outcome.ok()) {
-        FE_LOG_WARN("the lobby could not be prepared: {}",
+        MPE_LOG_WARN("the lobby could not be prepared: {}",
                     ran.ok() ? outcome.message() : ran.message());
         return;
     }
@@ -1542,7 +1542,7 @@ void PrepareLobby() {
             ++watched;
         }
     }
-    FE_LOG_INFO("lobby prepared and hidden; {} of {} button(s) live, opening is now a "
+    MPE_LOG_INFO("lobby prepared and hidden; {} of {} button(s) live, opening is now a "
                 "visibility change",
                 watched, g_lobby_controls.size());
 }
@@ -1557,7 +1557,7 @@ void OnLeaveLobby() {
         return;
     }
     (void)unreal::RunOnGameThread([&]() { unreal::ShowLobbyUI(ui, false); }, 10000);
-    FE_LOG_INFO("multiplayer lobby hidden");
+    MPE_LOG_INFO("multiplayer lobby hidden");
 }
 
 /// Asks Steam what is out there and reports what came back.
@@ -1566,7 +1566,7 @@ void OnLeaveLobby() {
 /// servers which do not exist is worse than one that lists none.
 void RefreshServerList() {
     const std::vector<unreal::ServerEntry> found = DiscoveredServers();
-    FE_LOG_INFO("server browser refreshed: {} server(s) found", found.size());
+    MPE_LOG_INFO("server browser refreshed: {} server(s) found", found.size());
 }
 
 /// Starts the match the lobby is configured for.
@@ -1577,7 +1577,7 @@ void OnStartMatch() {
     CaptureServerName();
     const std::string scenario = g_lobby.scenario;
     const bool        friendly_fire = g_lobby.friendly_fire;
-    FE_LOG_INFO("starting a {} match on {} (friendly fire {})", g_lobby.mode, scenario,
+    MPE_LOG_INFO("starting a {} match on {} (friendly fire {})", g_lobby.mode, scenario,
                 friendly_fire ? "on" : "off");
 
     OnLeaveLobby();
@@ -1597,7 +1597,7 @@ void OnStartMatch() {
         60000);
 
     if (!ran.ok() || !outcome.ok()) {
-        FE_LOG_WARN("the match did not start: {}",
+        MPE_LOG_WARN("the match did not start: {}",
                     ran.ok() ? outcome.message() : ran.message());
     }
 }
@@ -1606,11 +1606,11 @@ void OnStartMatch() {
 void OnJoinMatch() {
     const std::vector<unreal::ServerEntry> servers = DiscoveredServers();
     if (servers.empty()) {
-        FE_LOG_WARN("nothing to join: the browser found no servers");
+        MPE_LOG_WARN("nothing to join: the browser found no servers");
         return;
     }
     const unreal::ServerEntry& target = servers.front();
-    FE_LOG_INFO("joining {} ({} on {})", target.name, target.mode, target.map);
+    MPE_LOG_INFO("joining {} ({} on {})", target.name, target.mode, target.map);
     OnLeaveLobby();
 }
 
@@ -1669,12 +1669,12 @@ void MaintainMainMenuButton() {
                             g_lobby_ui.editable_font_offset = base + sizeof(void*);
                             g_lobby_ui.editable_colour_offset =
                                 g_lobby_ui.editable_font_offset + 0x48 + 0x8;
-                            FE_LOG_INFO("editable text style at +0x{:X}: font +0x{:X}, "
+                            MPE_LOG_INFO("editable text style at +0x{:X}: font +0x{:X}, "
                                         "colour +0x{:X}",
                                         base, g_lobby_ui.editable_font_offset,
                                         g_lobby_ui.editable_colour_offset);
                         } else {
-                            FE_LOG_WARN("the text field's style was not found; it will keep "
+                            MPE_LOG_WARN("the text field's style was not found; it will keep "
                                         "its default appearance");
                         }
                         const auto hint = g_state->reflection->FindProperty(
@@ -1685,12 +1685,12 @@ void MaintainMainMenuButton() {
                         }
                     }
                     g_lobby_ui_ready = true;
-                    FE_LOG_INFO("lobby handles cached; opening the lobby is now instant");
+                    MPE_LOG_INFO("lobby handles cached; opening the lobby is now instant");
                 } else {
                     static bool s_complained = false;
                     if (!s_complained) {
                         s_complained = true;
-                        FE_LOG_WARN("the lobby cannot be prepared: {}", statics.message());
+                        MPE_LOG_WARN("the lobby cannot be prepared: {}", statics.message());
                     }
                 }
             }
@@ -1798,7 +1798,7 @@ void MaintainMainMenuButton() {
             static std::uintptr_t s_complained_about = 0;
             if (s_complained_about != menu) {
                 s_complained_about = menu;
-                FE_LOG_WARN("menu found at 0x{:X} but the entry cannot be built: {}", menu,
+                MPE_LOG_WARN("menu found at 0x{:X} but the entry cannot be built: {}", menu,
                             resolved.message());
             }
             return;
@@ -1818,7 +1818,7 @@ void MaintainMainMenuButton() {
         g_live_menu          = menu;
         g_multiplayer_button = button;
         g_screen             = MultiplayerScreen::Home;
-        FE_LOG_INFO("multiplayer entry added to main menu 0x{:X}", menu);
+        MPE_LOG_INFO("multiplayer entry added to main menu 0x{:X}", menu);
 
         // Start listening on the new button straight away. The previous one went away with
         // the previous menu, so the watch has to follow the current widget.
@@ -1826,12 +1826,12 @@ void MaintainMainMenuButton() {
         // this, each job armed and disarmed a breakpoint across every thread, which is why
         // opening the lobby took seconds instead of a frame.
         if (const Result pump = unreal::InstallGameThreadPump(menu); !pump.ok()) {
-            FE_LOG_WARN("game thread pump unavailable: {}", pump.message());
+            MPE_LOG_WARN("game thread pump unavailable: {}", pump.message());
         }
 
         unreal::StopWatchingWidgetEvents();
         if (const Result watching = unreal::WatchWidgetEvents(button); !watching.ok()) {
-            FE_LOG_WARN("could not watch the multiplayer button: {}", watching.message());
+            MPE_LOG_WARN("could not watch the multiplayer button: {}", watching.message());
         } else {
             // HandleButtonClicked is the framework's own click, and it arrives exactly once
             // per press. It was chosen by watching what the button actually emits rather
@@ -1844,11 +1844,11 @@ void MaintainMainMenuButton() {
                     unreal::FindFunction(*g_state->objects, "HandleButtonClicked");
                 if (click != 0) {
                     unreal::SetWidgetClickEvent(click);
-                    FE_LOG_INFO("multiplayer button click bound to HandleButtonClicked "
+                    MPE_LOG_INFO("multiplayer button click bound to HandleButtonClicked "
                                 "0x{:X}",
                                 click);
                 } else {
-                    FE_LOG_WARN("HandleButtonClicked not found; the button will not respond");
+                    MPE_LOG_WARN("HandleButtonClicked not found; the button will not respond");
                 }
             }
         }
@@ -1877,7 +1877,7 @@ void PollWatchedFields() {
         }
         std::uint8_t raw = 0;
         if (!unreal::memory::GuardedRead(field.address, &raw, sizeof(raw))) {
-            FE_LOG_INFO("watch: {} at 0x{:X} became unreadable; the object was probably "
+            MPE_LOG_INFO("watch: {} at 0x{:X} became unreadable; the object was probably "
                         "collected",
                         field.label, field.address);
             field.valid = false;
@@ -1893,17 +1893,17 @@ void PollWatchedFields() {
             field.label.find("riendlyFire") != std::string::npos) {
             const std::uint8_t on = 1;
             if (unreal::memory::GuardedWrite(field.address, &on, sizeof(on))) {
-                FE_LOG_INFO("pvp: re-enabled friendly fire on {} (0x{:X})", field.label,
+                MPE_LOG_INFO("pvp: re-enabled friendly fire on {} (0x{:X})", field.label,
                             field.address);
                 field.last_value = true;
                 continue;
             }
-            FE_LOG_WARN("pvp: could not write friendly fire on {} (0x{:X})", field.label,
+            MPE_LOG_WARN("pvp: could not write friendly fire on {} (0x{:X})", field.label,
                         field.address);
         }
 
         if (value != field.last_value) {
-            FE_LOG_INFO("watch: {} changed {} -> {} (0x{:X})", field.label,
+            MPE_LOG_INFO("watch: {} changed {} -> {} (0x{:X})", field.label,
                         field.last_value ? "true" : "false", value ? "true" : "false",
                         field.address);
             field.last_value = value;
@@ -1978,14 +1978,14 @@ void SweepForCombatFields(const std::unordered_map<std::string, unreal::ObjectIn
 void ResolveUnrealReflection() {
     Expected<unreal::NamePool> pool = unreal::NamePool::Locate();
     if (!pool.ok()) {
-        FE_LOG_ERROR("UE reflection unavailable: {}", pool.message());
-        FE_LOG_ERROR("the UE side game engine variant cannot be reached without it");
+        MPE_LOG_ERROR("UE reflection unavailable: {}", pool.message());
+        MPE_LOG_ERROR("the UE side game engine variant cannot be reached without it");
         return;
     }
 
     // Proof of correctness, in the log where a user can see it.
     const std::vector<unreal::NameEntry> sample = pool.value().DumpBlock(0, 24);
-    FE_LOG_INFO("FName pool verification, first {} name(s) of block 0:", sample.size());
+    MPE_LOG_INFO("FName pool verification, first {} name(s) of block 0:", sample.size());
     std::string line;
     for (std::size_t i = 0; i < sample.size(); ++i) {
         line += sample[i].text;
@@ -1993,7 +1993,7 @@ void ResolveUnrealReflection() {
             line += ", ";
         }
     }
-    FE_LOG_INFO("  {}", line);
+    MPE_LOG_INFO("  {}", line);
 
     // Look up the names that matter for making a campaign scenario play as a versus
     // match. Finding these confirms the reflected surface is reachable by name.
@@ -2003,9 +2003,9 @@ void ResolveUnrealReflection() {
                                "BlamNetworkGameStateComponent"}) {
         const Expected<std::uint32_t> index = pool.value().FindIndexOf(wanted, 8);
         if (index.ok()) {
-            FE_LOG_INFO("  resolved '{}' to FName index {}", wanted, index.value());
+            MPE_LOG_INFO("  resolved '{}' to FName index {}", wanted, index.value());
         } else {
-            FE_LOG_WARN("  '{}' not found in the searched blocks: {}", wanted, index.message());
+            MPE_LOG_WARN("  '{}' not found in the searched blocks: {}", wanted, index.message());
         }
     }
 
@@ -2044,8 +2044,8 @@ void ResolveUnrealObjects() {
 
     Expected<unreal::ObjectArray> array = unreal::ObjectArray::Locate(*names);
     if (!array.ok()) {
-        FE_LOG_ERROR("GUObjectArray unavailable: {}", array.message());
-        FE_LOG_ERROR("live UE objects cannot be reached, so the game engine variant cannot be "
+        MPE_LOG_ERROR("GUObjectArray unavailable: {}", array.message());
+        MPE_LOG_ERROR("live UE objects cannot be reached, so the game engine variant cannot be "
                      "read or modified");
         return;
     }
@@ -2098,10 +2098,10 @@ void ResolveUnrealObjects() {
         return located.size() < std::size(kWanted);
     });
 
-    FE_LOG_INFO("located {} of {} target struct(s) among {} object(s)", located.size(),
+    MPE_LOG_INFO("located {} of {} target struct(s) among {} object(s)", located.size(),
                 std::size(kWanted), objects.Count());
     if (located.empty()) {
-        FE_LOG_ERROR("no target struct appeared; the game may not have finished starting");
+        MPE_LOG_ERROR("no target struct appeared; the game may not have finished starting");
         return;
     }
 
@@ -2115,11 +2115,11 @@ void ResolveUnrealObjects() {
 
     // Proof, in the log: the first objects in a UE process are always engine
     // intrinsics, so their names and classes are recognizable at a glance.
-    FE_LOG_INFO("UE object array verification, first 12 object(s):");
+    MPE_LOG_INFO("UE object array verification, first 12 object(s):");
     std::uint32_t shown = 0;
     objects.ForEach(
         [&](const unreal::ObjectInfo& object) {
-            FE_LOG_INFO("  [{:>6}] {:<40} class={}", object.index, object.name,
+            MPE_LOG_INFO("  [{:>6}] {:<40} class={}", object.index, object.name,
                         object.class_name);
             return ++shown < 12;
         },
@@ -2139,9 +2139,9 @@ void ResolveUnrealObjects() {
     const unreal::ReflectionLayout detected = reflection.DetectLayout(candidates);
     if (detected.detected) {
         reflection.SetLayout(detected);
-        FE_LOG_INFO("  UE layout detected: {}", detected.Describe());
+        MPE_LOG_INFO("  UE layout detected: {}", detected.Describe());
     } else {
-        FE_LOG_WARN("  UE layout detection found no property chain; trying documented offsets");
+        MPE_LOG_WARN("  UE layout detection found no property chain; trying documented offsets");
     }
 
     // Validate whatever layout we ended up with. A struct reporting fields outside its
@@ -2151,7 +2151,7 @@ void ResolveUnrealObjects() {
     for (const auto& [name, object] : located) {
         std::string report;
         const Result verified = reflection.VerifyLayout(object.address, report);
-        FE_LOG_INFO("  layout check: {}", report);
+        MPE_LOG_INFO("  layout check: {}", report);
         if (verified.ok()) {
             layout_ok = true;
             break;
@@ -2159,12 +2159,12 @@ void ResolveUnrealObjects() {
     }
 
     if (!layout_ok) {
-        FE_LOG_ERROR("  UE property layout could not be validated against any target struct");
-        FE_LOG_ERROR("  offsets will not be trusted; reflection reads are disabled");
+        MPE_LOG_ERROR("  UE property layout could not be validated against any target struct");
+        MPE_LOG_ERROR("  offsets will not be trusted; reflection reads are disabled");
         // Emit the raw data needed to work out the layout by hand, for the first
         // candidate. This is the artifact that makes the next attempt cheap.
         if (!candidates.empty()) {
-            FE_LOG_INFO("{}", reflection.ProbeStructLayout(candidates.front()));
+            MPE_LOG_INFO("{}", reflection.ProbeStructLayout(candidates.front()));
         }
         return;
     }
@@ -2181,21 +2181,21 @@ void ResolveUnrealObjects() {
     for (const char* wanted : kWanted) {
         const auto it = located.find(wanted);
         if (it == located.end()) {
-            FE_LOG_WARN("  '{}' was not found in the object array", wanted);
+            MPE_LOG_WARN("  '{}' was not found in the object array", wanted);
             continue;
         }
 
         const Expected<unreal::StructInfo> info = reflection.ReadStruct(it->second.address);
         if (!info.ok()) {
-            FE_LOG_WARN("  '{}' could not be read: {}", wanted, info.message());
+            MPE_LOG_WARN("  '{}' could not be read: {}", wanted, info.message());
             continue;
         }
 
-        FE_LOG_INFO("struct {} at 0x{:X}: size {}, {} field(s)", info.value().name,
+        MPE_LOG_INFO("struct {} at 0x{:X}: size {}, {} field(s)", info.value().name,
                     info.value().address, info.value().properties_size,
                     info.value().properties.size());
         for (const unreal::PropertyInfo& property : info.value().properties) {
-            FE_LOG_INFO("    +0x{:03X}  {:<12} {:<44} size {}", property.offset,
+            MPE_LOG_INFO("    +0x{:03X}  {:<12} {:<44} size {}", property.offset,
                         property.type_name, property.name, property.TotalSize());
         }
     }
@@ -2206,7 +2206,7 @@ void ResolveUnrealObjects() {
     for (const auto& [name, object] : located) {
         for (const unreal::PropertyInfo& property :
              reflection.FindPropertiesContaining(object.address, "riendly")) {
-            FE_LOG_INFO("field located: {}::{} at +0x{:X} type {} size {}", name, property.name,
+            MPE_LOG_INFO("field located: {}::{} at +0x{:X} type {} size {}", name, property.name,
                         property.offset, property.type_name, property.TotalSize());
             // Prefer the one on BlamScenarioGameOptions: that struct also carries
             // difficulty, skulls and insertion point, so it is the per match options
@@ -2248,7 +2248,7 @@ void ResolveLiveInstances(
     }
 
     if (friendly_fire_owner == 0 || friendly_fire.name.empty()) {
-        FE_LOG_WARN("no friendly fire field was located; cannot look for an instance");
+        MPE_LOG_WARN("no friendly fire field was located; cannot look for an instance");
         return;
     }
 
@@ -2263,20 +2263,20 @@ void ResolveLiveInstances(
 
     if (const std::size_t size_offset = reflection.DetectPropertiesSizeOffset(addresses);
         size_offset != 0) {
-        FE_LOG_INFO("properties_size refined to +0x{:X} using {} struct(s)", size_offset,
+        MPE_LOG_INFO("properties_size refined to +0x{:X} using {} struct(s)", size_offset,
                     addresses.size());
         layout.properties_size_offset = size_offset;
     } else {
-        FE_LOG_WARN("properties_size could not be refined; struct sizes stay unreliable");
+        MPE_LOG_WARN("properties_size could not be refined; struct sizes stay unreliable");
     }
 
     if (const std::size_t inner = reflection.DetectStructPropertyInnerOffset(addresses, addresses);
         inner != 0) {
-        FE_LOG_INFO("FStructProperty::Struct detected at +0x{:X}", inner);
+        MPE_LOG_INFO("FStructProperty::Struct detected at +0x{:X}", inner);
         layout.struct_property_inner_offset   = inner;
         layout.struct_property_inner_detected = true;
     } else {
-        FE_LOG_WARN("FStructProperty::Struct offset not detected; embedded struct search "
+        MPE_LOG_WARN("FStructProperty::Struct offset not detected; embedded struct search "
                     "cannot run");
     }
     reflection.SetLayout(layout);
@@ -2319,9 +2319,9 @@ void ResolveLiveInstances(
         return usages.size() < 32;
     });
 
-    FE_LOG_INFO("the target struct is embedded in {} type(s):", usages.size());
+    MPE_LOG_INFO("the target struct is embedded in {} type(s):", usages.size());
     for (const unreal::StructUsage& usage : usages) {
-        FE_LOG_INFO("  {} ({})::{} at +0x{:X}", usage.owner_name, usage.owner_class_name,
+        MPE_LOG_INFO("  {} ({})::{} at +0x{:X}", usage.owner_name, usage.owner_class_name,
                     usage.property_name, usage.property_offset);
     }
 
@@ -2331,7 +2331,7 @@ void ResolveLiveInstances(
         const std::vector<unreal::ObjectInfo> instances =
             objects.FindInstancesOfClassAddress(usage.owner_address, 8);
         if (instances.empty()) {
-            FE_LOG_INFO("  no live instance of {} right now", usage.owner_name);
+            MPE_LOG_INFO("  no live instance of {} right now", usage.owner_name);
             continue;
         }
         for (const unreal::ObjectInfo& instance : instances) {
@@ -2340,14 +2340,14 @@ void ResolveLiveInstances(
             const Expected<bool> value =
                 reflection.ReadBoolField(struct_instance, friendly_fire);
             if (!value.ok()) {
-                FE_LOG_WARN("  {} at 0x{:X}: could not read {}: {}", instance.name,
+                MPE_LOG_WARN("  {} at 0x{:X}: could not read {}: {}", instance.name,
                             instance.address, friendly_fire.name, value.message());
                 continue;
             }
             ++instances_read;
             const std::uintptr_t field_address =
                 struct_instance + static_cast<std::uintptr_t>(friendly_fire.offset);
-            FE_LOG_INFO("  LIVE VALUE {}.{}.{} = {} (instance 0x{:X}, field 0x{:X})",
+            MPE_LOG_INFO("  LIVE VALUE {}.{}.{} = {} (instance 0x{:X}, field 0x{:X})",
                         instance.name, usage.property_name, friendly_fire.name,
                         value.value() ? "true" : "false", instance.address, field_address);
 
@@ -2360,7 +2360,7 @@ void ResolveLiveInstances(
     }
 
     if (instances_read == 0) {
-        FE_LOG_INFO("no live instance was readable at the main menu, which is expected: the "
+        MPE_LOG_INFO("no live instance was readable at the main menu, which is expected: the "
                     "per match options struct is populated when a match is set up");
     }
 
@@ -2423,10 +2423,10 @@ void SweepForCombatFields(
         return hits.size() < 64;
     });
 
-    FE_LOG_INFO("combat rule sweep: scanned {} reflected type(s), found {} candidate field(s)",
+    MPE_LOG_INFO("combat rule sweep: scanned {} reflected type(s), found {} candidate field(s)",
                 types_scanned, hits.size());
     for (const Hit& hit : hits) {
-        FE_LOG_INFO("  {} ({})::{} at +0x{:X} type {}", hit.owner, hit.owner_kind, hit.field,
+        MPE_LOG_INFO("  {} ({})::{} at +0x{:X} type {}", hit.owner, hit.owner_kind, hit.field,
                     hit.offset, hit.type);
     }
 
@@ -2454,7 +2454,7 @@ void SweepForCombatFields(
 
         const std::vector<unreal::ObjectInfo> instances =
             objects.FindInstancesOfClassAddress(class_address, 8);
-        FE_LOG_INFO("  {} has {} live instance(s)", hit.owner, instances.size());
+        MPE_LOG_INFO("  {} has {} live instance(s)", hit.owner, instances.size());
 
         unreal::PropertyInfo field;
         field.name         = hit.field;
@@ -2467,7 +2467,7 @@ void SweepForCombatFields(
             if (!value.ok()) {
                 continue;
             }
-            FE_LOG_INFO("    LIVE {}::{} = {} (instance 0x{:X})", instance.name, hit.field,
+            MPE_LOG_INFO("    LIVE {}::{} = {} (instance 0x{:X})", instance.name, hit.field,
                         value.value() ? "true" : "false", instance.address);
 
             RegisterWatch(std::format("{}::{}", instance.name, hit.field), instance.address,
@@ -2509,11 +2509,11 @@ void SweepForCombatFields(
     for (const auto& [name, object] : located) {
         const auto it = owners_by_target.find(name);
         if (it == owners_by_target.end() || it->second.empty()) {
-            FE_LOG_INFO("  {} is embedded by nothing reflected", name);
+            MPE_LOG_INFO("  {} is embedded by nothing reflected", name);
             continue;
         }
         for (const unreal::StructUsage& owner : it->second) {
-            FE_LOG_INFO("  {} embedded by {} ({})::{} at +0x{:X}", name, owner.owner_name,
+            MPE_LOG_INFO("  {} embedded by {} ({})::{} at +0x{:X}", name, owner.owner_name,
                         owner.owner_class_name, owner.property_name, owner.property_offset);
         }
     }
@@ -2526,14 +2526,14 @@ void SweepForCombatFields(
     // change applied. That is not something a mod should do on its own: the field's
     // consumers are not understood, the value was left altered without anyone asking,
     // and it coincided with the game failing to start. Discovery reads; changing the
-    // game happens only when someone explicitly calls FE_SetFriendlyFire.
+    // game happens only when someone explicitly calls MPE_SetFriendlyFire.
     //
     // The write mechanism itself is already proven: an earlier run toggled a live
     // instance and read the new value back before restoring it. Repeating that on every
     // launch buys nothing and risks the run.
     (void)known_usages;
     (void)friendly_fire;
-    FE_LOG_INFO("discovery complete; no game state was modified. Use FE_SetFriendlyFire to "
+    MPE_LOG_INFO("discovery complete; no game state was modified. Use MPE_SetFriendlyFire to "
                 "change it deliberately.");
 }
 
@@ -2548,10 +2548,10 @@ void SweepForCombatFields(
 }
 
 void Initialize() {
-    log::Initialize(DataDirectory() / "ForgeEvolved.log", log::Level::Info);
-    FE_LOG_INFO("ForgeEvolved {} starting", FE_VERSION_STRING);
-    FE_LOG_INFO("game build: {}", GameBuildString());
-    FE_LOG_INFO("data directory: {}", DataDirectory().string());
+    log::Initialize(DataDirectory() / "MultiplayerEvolved.log", log::Level::Info);
+    MPE_LOG_INFO("MultiplayerEvolved {} starting", MPE_VERSION_STRING);
+    MPE_LOG_INFO("game build: {}", GameBuildString());
+    MPE_LOG_INFO("data directory: {}", DataDirectory().string());
 
     // The FName adapter is written in early, but never called here.
     //
@@ -2568,10 +2568,10 @@ void Initialize() {
         unreal::TrampolineInfo trampoline;
         if (const Result installed = unreal::InstallFNameTrampoline(trampoline);
             !installed.ok()) {
-            FE_LOG_WARN("FName adapter not installed: {}", installed.message());
+            MPE_LOG_WARN("FName adapter not installed: {}", installed.message());
         }
     } else {
-        FE_LOG_INFO("FName adapter skipped: fe_no_fname is present");
+        MPE_LOG_INFO("FName adapter skipped: fe_no_fname is present");
     }
 
     auto state = std::make_unique<ModState>();
@@ -2585,8 +2585,8 @@ void Initialize() {
     // Order now reflects the dependency: Steam, then engine.
     const std::string network_failure = BringUpNetworking(*state);
     if (!network_failure.empty()) {
-        FE_LOG_ERROR("{}", network_failure);
-        FE_LOG_ERROR("the mod is loaded but cannot host or join. The game is unaffected.");
+        MPE_LOG_ERROR("{}", network_failure);
+        MPE_LOG_ERROR("the mod is loaded but cannot host or join. The game is unaffected.");
     }
 
     // The engine control is created once, up front, and never replaced.
@@ -2607,7 +2607,7 @@ void Initialize() {
         state->manager = std::make_unique<lobby::LobbyManager>(
             *state->backend, *state->transport, *state->engine, state->sink);
     } else {
-        FE_LOG_WARN("no lobby manager: networking is unavailable");
+        MPE_LOG_WARN("no lobby manager: networking is unavailable");
     }
 
     // Published before the engine poll, so the Steam surface and the lobby are usable
@@ -2629,7 +2629,7 @@ void Initialize() {
     // image, so it runs now and costs a moment. If it does not work out, the slower search
     // further down still runs and nothing is lost but the head start.
     if (TryFastReflection()) {
-        FE_LOG_INFO("UE reflection ready early; the menu entry can be in place before the "
+        MPE_LOG_INFO("UE reflection ready early; the menu entry can be in place before the "
                     "menu is first drawn");
 
         // Work out how to call functions now rather than when the menu first appears.
@@ -2643,7 +2643,7 @@ void Initialize() {
         std::lock_guard    lock(g_state_mutex);
         if (g_state && g_state->objects.has_value()) {
             if (unreal::DetectCallLayout(*g_state->objects, layout).ok()) {
-                FE_LOG_INFO("call layout ready early too; the entry can go in on the first "
+                MPE_LOG_INFO("call layout ready early too; the entry can go in on the first "
                             "menu tick");
             }
         }
@@ -2653,7 +2653,7 @@ void Initialize() {
     g_running.store(true, std::memory_order_release);
     g_tick_thread = std::thread(&TickLoop);
 
-    FE_LOG_INFO("ForgeEvolved ready ({})",
+    MPE_LOG_INFO("MultiplayerEvolved ready ({})",
                 network_failure.empty() ? "lobby available" : "lobby unavailable");
 
     // Asked once, in the background, and applied at the next start. Nothing waits on it.
@@ -2703,18 +2703,18 @@ void Initialize() {
     // On a fast machine both pass in seconds; on a slow one they take as long as they
     // take, and neither can expire and leave the scan running at the wrong moment.
     if (!pacing::WaitFor("waiting for the game window", &HasGameWindow, aborted)) {
-        FE_LOG_WARN("the game window never appeared; skipping UE reflection");
+        MPE_LOG_WARN("the game window never appeared; skipping UE reflection");
         return;
     }
-    FE_LOG_INFO("game window is up; waiting for loading to settle before scanning");
+    MPE_LOG_INFO("game window is up; waiting for loading to settle before scanning");
 
     if (!pacing::WaitForQuiet("waiting for the game to finish loading", aborted)) {
-        FE_LOG_WARN("the game never went quiet; skipping UE reflection rather than "
+        MPE_LOG_WARN("the game never went quiet; skipping UE reflection rather than "
                     "competing with a machine that is still working");
         return;
     }
 
-    FE_LOG_INFO("the game is idle; starting UE reflection");
+    MPE_LOG_INFO("the game is idle; starting UE reflection");
     ResolveUnrealReflection();
 }
 
@@ -2742,7 +2742,7 @@ void Shutdown() {
 
     steam::Shutdown();
 
-    FE_LOG_INFO("ForgeEvolved stopped");
+    MPE_LOG_INFO("MultiplayerEvolved stopped");
     log::Shutdown();
 }
 
@@ -2764,43 +2764,43 @@ template <typename Action>
 }
 
 } // namespace
-} // namespace fe
+} // namespace mpe
 
 // ---------------------------------------------------------------------------
 // Public C API
 // ---------------------------------------------------------------------------
 //
-// Convention: 0 means success, a negative value is the negated fe::ErrorCode.
-// FE_LastErrorMessage returns the text for the most recent failure.
+// Convention: 0 means success, a negative value is the negated mpe::ErrorCode.
+// MPE_LastErrorMessage returns the text for the most recent failure.
 
 extern "C" {
 
 /// True once the mod finished starting up and can accept commands.
-__declspec(dllexport) int FE_IsReady() {
-    return fe::g_ready.load(std::memory_order_acquire) ? 1 : 0;
+__declspec(dllexport) int MPE_IsReady() {
+    return mpe::g_ready.load(std::memory_order_acquire) ? 1 : 0;
 }
 
-__declspec(dllexport) const char* FE_Version() {
-    return FE_VERSION_STRING;
+__declspec(dllexport) const char* MPE_Version() {
+    return MPE_VERSION_STRING;
 }
 
 /// Hosts a session. mode is a canonical mode name such as "capture_the_flag".
 /// map_path may be null or empty for the base scenario with no custom layout.
-__declspec(dllexport) int FE_HostSession(const char* mode, const char* scenario,
+__declspec(dllexport) int MPE_HostSession(const char* mode, const char* scenario,
                                          const char* map_path, int max_players,
                                          int friends_only) {
     if (mode == nullptr || scenario == nullptr) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
 
-    fe::engine::GameMode parsed_mode{};
-    if (!fe::engine::ParseGameMode(mode, parsed_mode)) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+    mpe::engine::GameMode parsed_mode{};
+    if (!mpe::engine::ParseGameMode(mode, parsed_mode)) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
 
-    fe::lobby::HostOptions options;
-    options.visibility = (friends_only != 0) ? fe::lobby::LobbyVisibility::FriendsOnly
-                                             : fe::lobby::LobbyVisibility::Public;
+    mpe::lobby::HostOptions options;
+    options.visibility = (friends_only != 0) ? mpe::lobby::LobbyVisibility::FriendsOnly
+                                             : mpe::lobby::LobbyVisibility::Public;
     options.max_players = static_cast<std::uint32_t>(max_players > 0 ? max_players : 8);
     options.settings.mode     = parsed_mode;
     options.settings.scenario = scenario;
@@ -2808,74 +2808,74 @@ __declspec(dllexport) int FE_HostSession(const char* mode, const char* scenario,
         options.map_variant_path = map_path;
     }
 
-    return fe::WithManager([&](fe::lobby::LobbyManager& manager) {
+    return mpe::WithManager([&](mpe::lobby::LobbyManager& manager) {
         return manager.HostSession(options);
     });
 }
 
-__declspec(dllexport) int FE_JoinSession(unsigned long long lobby_id) {
-    return fe::WithManager([&](fe::lobby::LobbyManager& manager) {
+__declspec(dllexport) int MPE_JoinSession(unsigned long long lobby_id) {
+    return mpe::WithManager([&](mpe::lobby::LobbyManager& manager) {
         return manager.JoinSession(lobby_id);
     });
 }
 
-__declspec(dllexport) int FE_LeaveSession() {
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state || !fe::g_state->manager) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+__declspec(dllexport) int MPE_LeaveSession() {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state || !mpe::g_state->manager) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
-    fe::g_state->manager->LeaveSession();
+    mpe::g_state->manager->LeaveSession();
     return 0;
 }
 
-__declspec(dllexport) int FE_SetReady(int ready) {
-    return fe::WithManager([&](fe::lobby::LobbyManager& manager) {
+__declspec(dllexport) int MPE_SetReady(int ready) {
+    return mpe::WithManager([&](mpe::lobby::LobbyManager& manager) {
         return manager.SetLocalReady(ready != 0);
     });
 }
 
-__declspec(dllexport) int FE_StartMatch() {
-    return fe::WithManager(
-        [](fe::lobby::LobbyManager& manager) { return manager.StartCountdown(); });
+__declspec(dllexport) int MPE_StartMatch() {
+    return mpe::WithManager(
+        [](mpe::lobby::LobbyManager& manager) { return manager.StartCountdown(); });
 }
 
-__declspec(dllexport) int FE_OpenInviteOverlay() {
-    return fe::WithManager(
-        [](fe::lobby::LobbyManager& manager) { return manager.OpenInviteOverlay(); });
+__declspec(dllexport) int MPE_OpenInviteOverlay() {
+    return mpe::WithManager(
+        [](mpe::lobby::LobbyManager& manager) { return manager.OpenInviteOverlay(); });
 }
 
-__declspec(dllexport) int FE_SelectMap(const char* map_path) {
+__declspec(dllexport) int MPE_SelectMap(const char* map_path) {
     if (map_path == nullptr) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
-    return fe::WithManager([&](fe::lobby::LobbyManager& manager) {
+    return mpe::WithManager([&](mpe::lobby::LobbyManager& manager) {
         return manager.SelectMapVariant(map_path);
     });
 }
 
-__declspec(dllexport) int FE_SendChat(const char* text) {
+__declspec(dllexport) int MPE_SendChat(const char* text) {
     if (text == nullptr) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
-    return fe::WithManager(
-        [&](fe::lobby::LobbyManager& manager) { return manager.SendChat(text); });
+    return mpe::WithManager(
+        [&](mpe::lobby::LobbyManager& manager) { return manager.SendChat(text); });
 }
 
 /// Current phase as a stable lowercase identifier, for example "in_lobby".
 /// Never null. The returned pointer is valid until the next call.
-__declspec(dllexport) const char* FE_Phase() {
+__declspec(dllexport) const char* MPE_Phase() {
     static thread_local std::string phase;
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state || !fe::g_state->manager) {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state || !mpe::g_state->manager) {
         phase = "unavailable";
         return phase.c_str();
     }
-    phase = fe::lobby::ToString(fe::g_state->manager->Phase());
+    phase = mpe::lobby::ToString(mpe::g_state->manager->Phase());
     return phase.c_str();
 }
 
 /// Writes a value into a stride 0x18 descriptor record by name. Returns 0 on success,
-/// or a negated fe::ErrorCode.
+/// or a negated mpe::ErrorCode.
 ///
 /// This does exactly what it says and no more. A successful return means the memory was
 /// written and can be read back. It does NOT mean the engine observed the change:
@@ -2885,29 +2885,29 @@ __declspec(dllexport) const char* FE_Phase() {
 ///
 /// It refuses stride 0x10 string id records, so asking it to enable something like
 /// "forge_main_menu_palettes" fails with an explanation rather than appearing to work.
-__declspec(dllexport) int FE_SetGlobal(const char* name, unsigned long long value) {
+__declspec(dllexport) int MPE_SetGlobal(const char* name, unsigned long long value) {
     if (name == nullptr) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state || !fe::g_state->globals.has_value()) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state || !mpe::g_state->globals.has_value()) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
-    const fe::Result result = fe::g_state->globals->SetNumber(name, value);
+    const mpe::Result result = mpe::g_state->globals->SetNumber(name, value);
     return result.ok() ? 0 : -static_cast<int>(result.code());
 }
 
 /// Reads a writable engine global by name. Returns 0 on success and writes through
 /// out_value, which must not be null.
-__declspec(dllexport) int FE_GetGlobal(const char* name, unsigned long long* out_value) {
+__declspec(dllexport) int MPE_GetGlobal(const char* name, unsigned long long* out_value) {
     if (name == nullptr || out_value == nullptr) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state || !fe::g_state->globals.has_value()) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state || !mpe::g_state->globals.has_value()) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
-    const auto value = fe::g_state->globals->GetNumber(name);
+    const auto value = mpe::g_state->globals->GetNumber(name);
     if (!value.ok()) {
         return -static_cast<int>(value.code());
     }
@@ -2920,20 +2920,20 @@ __declspec(dllexport) int FE_GetGlobal(const char* name, unsigned long long* out
 ///
 /// This is how a player or contributor finds what is available without needing the
 /// probe tools or a copy of the symbol dump.
-__declspec(dllexport) int FE_LogGlobals(const char* name_contains, int max_results) {
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state || !fe::g_state->globals.has_value()) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+__declspec(dllexport) int MPE_LogGlobals(const char* name_contains, int max_results) {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state || !mpe::g_state->globals.has_value()) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
 
     const std::string filter(name_contains != nullptr ? name_contains : "");
-    const auto listed = fe::g_state->globals->List(
+    const auto listed = mpe::g_state->globals->List(
         filter, max_results > 0 ? static_cast<std::size_t>(max_results) : 64);
 
-    fe::log::Write(fe::log::Level::Info, "Mod",
+    mpe::log::Write(mpe::log::Level::Info, "Mod",
                    std::format("{} global(s) matching '{}':", listed.size(), filter));
     for (const auto& info : listed) {
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("  {:<64} type={} value=0x{:X}{}", info.name, info.type,
                                    info.value, info.writable ? "" : "  (read only string id)"));
     }
@@ -2948,58 +2948,58 @@ __declspec(dllexport) int FE_LogGlobals(const char* name_contains, int max_resul
 /// rather than LobbyManager::HostSession, because HostSession is gated on the engine
 /// binding and this test is about the lobby layer, not the engine.
 ///
-/// Returns 0 on success, or a negated fe::ErrorCode. Blocks for up to
+/// Returns 0 on success, or a negated mpe::ErrorCode. Blocks for up to
 /// timeout_seconds while polling, so call it from a worker thread, not a render
 /// thread.
-__declspec(dllexport) int FE_LobbySelfTest(int timeout_seconds) {
+__declspec(dllexport) int MPE_LobbySelfTest(int timeout_seconds) {
     using namespace std::chrono;
 
     // Minimal observer that records the outcome. Declared locally because it exists
     // only for the duration of this test.
-    class TestObserver final : public fe::lobby::ILobbyBackendObserver {
+    class TestObserver final : public mpe::lobby::ILobbyBackendObserver {
     public:
         bool             created{false};
         bool             failed{false};
-        fe::lobby::LobbyId lobby{0};
+        mpe::lobby::LobbyId lobby{0};
         std::string      detail;
 
-        void OnLobbyCreated(fe::lobby::LobbyId id) override {
+        void OnLobbyCreated(mpe::lobby::LobbyId id) override {
             created = true;
             lobby   = id;
         }
-        void OnLobbyCreateFailed(const fe::Error& error) override {
+        void OnLobbyCreateFailed(const mpe::Error& error) override {
             failed = true;
             detail = error.message;
         }
-        void OnLobbyEntered(fe::lobby::LobbyId id, bool) override { lobby = id; }
-        void OnLobbyEnterFailed(const fe::Error& error) override {
+        void OnLobbyEntered(mpe::lobby::LobbyId id, bool) override { lobby = id; }
+        void OnLobbyEnterFailed(const mpe::Error& error) override {
             failed = true;
             detail = error.message;
         }
-        void OnMemberJoined(const fe::lobby::LobbyMember&) override {}
-        void OnMemberLeft(fe::lobby::PlatformId, bool) override {}
-        void OnLobbyDataChanged(fe::lobby::LobbyId) override {}
-        void OnMemberDataChanged(fe::lobby::PlatformId) override {}
-        void OnJoinRequested(fe::lobby::LobbyId, fe::lobby::PlatformId) override {}
+        void OnMemberJoined(const mpe::lobby::LobbyMember&) override {}
+        void OnMemberLeft(mpe::lobby::PlatformId, bool) override {}
+        void OnLobbyDataChanged(mpe::lobby::LobbyId) override {}
+        void OnMemberDataChanged(mpe::lobby::PlatformId) override {}
+        void OnJoinRequested(mpe::lobby::LobbyId, mpe::lobby::PlatformId) override {}
     };
 
-    fe::lobby::ILobbyBackend* backend = nullptr;
+    mpe::lobby::ILobbyBackend* backend = nullptr;
     {
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->backend) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->backend) {
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            "lobby self test: the Steam backend is not available");
-            return -static_cast<int>(fe::ErrorCode::SteamUnavailable);
+            return -static_cast<int>(mpe::ErrorCode::SteamUnavailable);
         }
-        backend = fe::g_state->backend.get();
+        backend = mpe::g_state->backend.get();
     }
 
-    fe::log::Write(fe::log::Level::Info, "Mod", "lobby self test: creating a lobby");
+    mpe::log::Write(mpe::log::Level::Info, "Mod", "lobby self test: creating a lobby");
 
-    const fe::Result created =
-        backend->Create(fe::lobby::LobbyVisibility::FriendsOnly, 8);
+    const mpe::Result created =
+        backend->Create(mpe::lobby::LobbyVisibility::FriendsOnly, 8);
     if (!created.ok()) {
-        fe::log::Write(fe::log::Level::Error, "Mod",
+        mpe::log::Write(mpe::log::Level::Error, "Mod",
                        std::format("lobby self test: Create failed: {}", created.message()));
         return -static_cast<int>(created.code());
     }
@@ -3012,39 +3012,39 @@ __declspec(dllexport) int FE_LobbySelfTest(int timeout_seconds) {
         // When this process owns the Steam API it also owns the callback pump.
         // Without this the CreateLobby call result never fires and the test times out,
         // which is exactly what happened before it was added.
-        fe::steam::RunCallbacks();
+        mpe::steam::RunCallbacks();
         backend->Poll(observer);
         std::this_thread::sleep_for(milliseconds(100));
     }
 
     if (observer.failed) {
-        fe::log::Write(fe::log::Level::Error, "Mod",
+        mpe::log::Write(mpe::log::Level::Error, "Mod",
                        std::format("lobby self test: FAILED: {}", observer.detail));
-        return -static_cast<int>(fe::ErrorCode::LobbyUnavailable);
+        return -static_cast<int>(mpe::ErrorCode::LobbyUnavailable);
     }
     if (!observer.created) {
-        fe::log::Write(fe::log::Level::Error, "Mod",
+        mpe::log::Write(mpe::log::Level::Error, "Mod",
                        "lobby self test: timed out waiting for the lobby to be created");
         backend->Leave();
-        return -static_cast<int>(fe::ErrorCode::Timeout);
+        return -static_cast<int>(mpe::ErrorCode::Timeout);
     }
 
-    fe::log::Write(fe::log::Level::Info, "Mod",
+    mpe::log::Write(mpe::log::Level::Info, "Mod",
                    std::format("lobby self test: lobby {} created, owner={}", observer.lobby,
                                backend->IsOwner()));
 
     // Read back the metadata a joining client would evaluate. This is the part that
     // proves a friend could actually find and validate this lobby.
     int failures = 0;
-    for (const char* key : {fe::lobby::keys::kProtocolVersion, fe::lobby::keys::kGameBuild,
-                            fe::lobby::keys::kHostId}) {
+    for (const char* key : {mpe::lobby::keys::kProtocolVersion, mpe::lobby::keys::kGameBuild,
+                            mpe::lobby::keys::kHostId}) {
         const auto value = backend->GetLobbyData(key);
         if (value.ok()) {
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("lobby self test:   {} = {}", key, value.value()));
         } else {
             ++failures;
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("lobby self test:   {} MISSING: {}", key,
                                        value.message()));
         }
@@ -3052,13 +3052,13 @@ __declspec(dllexport) int FE_LobbySelfTest(int timeout_seconds) {
 
     // Member data is the path a ready flag travels before a transport connection
     // exists, so it is worth proving too.
-    if (const fe::Result member = backend->SetMemberData(fe::lobby::keys::kMemberReady, "1");
+    if (const mpe::Result member = backend->SetMemberData(mpe::lobby::keys::kMemberReady, "1");
         member.ok()) {
         const auto local = backend->LocalId();
         if (local.ok()) {
             const auto read_back =
-                backend->GetMemberData(local.value(), fe::lobby::keys::kMemberReady);
-            fe::log::Write(fe::log::Level::Info, "Mod",
+                backend->GetMemberData(local.value(), mpe::lobby::keys::kMemberReady);
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("lobby self test:   member ready flag round trip: {}",
                                        read_back.ok() ? read_back.value() : "MISSING"));
             if (!read_back.ok()) {
@@ -3069,27 +3069,27 @@ __declspec(dllexport) int FE_LobbySelfTest(int timeout_seconds) {
         ++failures;
     }
 
-    fe::log::Write(fe::log::Level::Info, "Mod", "lobby self test: leaving the lobby");
+    mpe::log::Write(mpe::log::Level::Info, "Mod", "lobby self test: leaving the lobby");
     backend->Leave();
 
     if (failures > 0) {
-        fe::log::Write(fe::log::Level::Error, "Mod",
+        mpe::log::Write(mpe::log::Level::Error, "Mod",
                        std::format("lobby self test: completed with {} failure(s)", failures));
-        return -static_cast<int>(fe::ErrorCode::LobbyUnavailable);
+        return -static_cast<int>(mpe::ErrorCode::LobbyUnavailable);
     }
 
-    fe::log::Write(fe::log::Level::Info, "Mod", "lobby self test: PASSED");
+    mpe::log::Write(mpe::log::Level::Info, "Mod", "lobby self test: PASSED");
     return 0;
 }
 
 /// Opens the Steam invite overlay for the current lobby. Exposed separately from the
 /// lobby manager so the metadata plane can be driven without the engine.
-__declspec(dllexport) int FE_TestInviteOverlay() {
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state || !fe::g_state->backend) {
-        return -static_cast<int>(fe::ErrorCode::SteamUnavailable);
+__declspec(dllexport) int MPE_TestInviteOverlay() {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state || !mpe::g_state->backend) {
+        return -static_cast<int>(mpe::ErrorCode::SteamUnavailable);
     }
-    const fe::Result result = fe::g_state->backend->OpenInviteOverlay();
+    const mpe::Result result = mpe::g_state->backend->OpenInviteOverlay();
     return result.ok() ? 0 : -static_cast<int>(result.code());
 }
 
@@ -3097,23 +3097,23 @@ __declspec(dllexport) int FE_TestInviteOverlay() {
 ///
 /// Several independent copies exist. Which one a match actually consults is not yet
 /// established, so this writes all of them rather than pretending to know.
-__declspec(dllexport) int FE_SetFriendlyFire(int enabled) {
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+__declspec(dllexport) int MPE_SetFriendlyFire(int enabled) {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
 
     const std::uint8_t byte = (enabled != 0) ? 1u : 0u;
     int written = 0;
-    for (fe::ModState::WatchedField& field : fe::g_state->watched) {
+    for (mpe::ModState::WatchedField& field : mpe::g_state->watched) {
         if (!field.valid) {
             continue;
         }
-        if (fe::unreal::memory::WriteBytes(field.address, &byte, sizeof(byte))) {
+        if (mpe::unreal::memory::WriteBytes(field.address, &byte, sizeof(byte))) {
             // Updated so the watcher reports the game overwriting us, not our own store.
             field.last_value = (byte != 0);
             ++written;
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("set {} = {}", field.label, byte != 0));
         }
     }
@@ -3121,17 +3121,17 @@ __declspec(dllexport) int FE_SetFriendlyFire(int enabled) {
 }
 
 /// Logs the current value of every located copy. Returns how many were readable.
-__declspec(dllexport) int FE_LogFriendlyFire() {
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+__declspec(dllexport) int MPE_LogFriendlyFire() {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
     int readable = 0;
-    for (const fe::ModState::WatchedField& field : fe::g_state->watched) {
+    for (const mpe::ModState::WatchedField& field : mpe::g_state->watched) {
         std::uint8_t raw = 0;
-        if (field.valid && fe::unreal::memory::GuardedRead(field.address, &raw, sizeof(raw))) {
+        if (field.valid && mpe::unreal::memory::GuardedRead(field.address, &raw, sizeof(raw))) {
             ++readable;
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  {} = {} (0x{:X})", field.label, raw != 0,
                                        field.address));
         }
@@ -3139,8 +3139,8 @@ __declspec(dllexport) int FE_LogFriendlyFire() {
     return readable;
 }
 
-// Defined below; FE_Command dispatches to it.
-__declspec(dllexport) int FE_DumpDiagnostics();
+// Defined below; MPE_Command dispatches to it.
+__declspec(dllexport) int MPE_DumpDiagnostics();
 
 /// Runs one text command. The universal control channel.
 ///
@@ -3161,10 +3161,10 @@ __declspec(dllexport) int FE_DumpDiagnostics();
 ///   globals <substring>  log matching engine globals
 ///   watch                log the current watch list
 ///
-/// Returns 0 on success, or a negated fe::ErrorCode.
-__declspec(dllexport) int FE_Command(const char* command_line) {
+/// Returns 0 on success, or a negated mpe::ErrorCode.
+__declspec(dllexport) int MPE_Command(const char* command_line) {
     if (command_line == nullptr) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
 
     // Copied immediately: the memory belongs to the caller's remote allocation and may
@@ -3173,74 +3173,74 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
     try {
         command.assign(command_line);
     } catch (...) {
-        return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+        return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
     }
     if (command.size() > 512) {
         command.resize(512);
     }
 
-    fe::log::Write(fe::log::Level::Info, "Mod", std::format("command: '{}'", command));
+    mpe::log::Write(mpe::log::Level::Info, "Mod", std::format("command: '{}'", command));
 
     const auto starts_with = [&command](std::string_view prefix) {
         return command.rfind(prefix, 0) == 0;
     };
 
     if (starts_with("ff status")) {
-        return FE_LogFriendlyFire();
+        return MPE_LogFriendlyFire();
     }
     if (starts_with("ff on")) {
-        return FE_SetFriendlyFire(1);
+        return MPE_SetFriendlyFire(1);
     }
     if (starts_with("ff off")) {
-        return FE_SetFriendlyFire(0);
+        return MPE_SetFriendlyFire(0);
     }
     if (starts_with("diag")) {
-        return FE_DumpDiagnostics();
+        return MPE_DumpDiagnostics();
     }
     if (starts_with("globals")) {
         const std::size_t space = command.find(' ');
         const std::string filter =
             (space == std::string::npos) ? std::string{} : command.substr(space + 1);
-        return FE_LogGlobals(filter.c_str(), 64);
+        return MPE_LogGlobals(filter.c_str(), 64);
     }
     if (starts_with("lobbytest")) {
-        return FE_LobbySelfTest(20);
+        return MPE_LobbySelfTest(20);
     }
     if (starts_with("host")) {
         // Defaults chosen so the command is useful with no arguments. The scenario is a
         // campaign level because those are the only levels this build ships, and
         // friends_only keeps a test host off the public list.
-        return FE_HostSession("slayer", "a30", "/Game/Levels/Halo1/Solo/A30/A30", 4, 1);
+        return MPE_HostSession("slayer", "a30", "/Game/Levels/Halo1/Solo/A30/A30", 4, 1);
     }
     if (starts_with("leave")) {
-        return FE_LeaveSession();
+        return MPE_LeaveSession();
     }
     if (starts_with("invite")) {
-        return FE_OpenInviteOverlay();
+        return MPE_OpenInviteOverlay();
     }
     if (starts_with("events")) {
         // Names every event seen on the multiplayer button, and marks the most recent one.
         // Click the button, then run this: whatever appears at the end is the click.
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        const std::vector<std::uintptr_t> seen = fe::unreal::SeenWidgetEvents();
-        const std::uintptr_t              last = fe::unreal::LastWidgetEvent();
+        const std::vector<std::uintptr_t> seen = mpe::unreal::SeenWidgetEvents();
+        const std::uintptr_t              last = mpe::unreal::LastWidgetEvent();
 
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("{} distinct event(s) seen on the watched widget",
                                    seen.size()));
         for (const std::uintptr_t function : seen) {
             std::string name = "?";
-            fe::g_state->objects->ForEach([&](const fe::unreal::ObjectInfo& object) {
+            mpe::g_state->objects->ForEach([&](const mpe::unreal::ObjectInfo& object) {
                 if (object.address != function) {
                     return true;
                 }
                 name = object.name;
                 return false;
             });
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  0x{:X}  {}{}", function, name,
                                        function == last ? "   <- most recent" : ""));
         }
@@ -3251,54 +3251,54 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // created by this mod can be drawn at all. A whole screen that builds without error
         // and shows nothing cannot distinguish a layout mistake from a mounting mistake;
         // this can.
-        fe::unreal::LobbyUIContext ui;
-        fe::Result                 outcome = fe::Result::Success();
+        mpe::unreal::LobbyUIContext ui;
+        mpe::Result                 outcome = mpe::Result::Success();
         {
-            std::lock_guard lock(fe::g_state_mutex);
-            if (!fe::g_state || !fe::g_state->objects.has_value()) {
-                return -static_cast<int>(fe::ErrorCode::InvalidState);
+            std::lock_guard lock(mpe::g_state_mutex);
+            if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+                return -static_cast<int>(mpe::ErrorCode::InvalidState);
             }
-            if (const fe::Result resolved =
-                    fe::unreal::ResolveLobbyUI(*fe::g_state->objects, ui);
+            if (const mpe::Result resolved =
+                    mpe::unreal::ResolveLobbyUI(*mpe::g_state->objects, ui);
                 !resolved.ok()) {
-                fe::log::Write(fe::log::Level::Error, "Mod",
+                mpe::log::Write(mpe::log::Level::Error, "Mod",
                                std::format("probe unavailable: {}", resolved.message()));
-                return -static_cast<int>(fe::ErrorCode::InvalidState);
+                return -static_cast<int>(mpe::ErrorCode::InvalidState);
             }
         }
-        const fe::Result ran = fe::unreal::RunOnGameThread(
-            [&]() { outcome = fe::unreal::ProbeLobbyUI(ui); }, 20000);
+        const mpe::Result ran = mpe::unreal::RunOnGameThread(
+            [&]() { outcome = mpe::unreal::ProbeLobbyUI(ui); }, 20000);
         if (!ran.ok() || !outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("probe failed: {}",
                                        ran.ok() ? outcome.message() : ran.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return 0;
     }
     if (starts_with("mpbutton")) {
-        fe::Result     outcome = fe::Result::Success();
+        mpe::Result     outcome = mpe::Result::Success();
         std::uintptr_t button  = 0;
-        const fe::Result ran = fe::unreal::RunOnGameThread(
+        const mpe::Result ran = mpe::unreal::RunOnGameThread(
             [&]() {
-                std::lock_guard lock(fe::g_state_mutex);
-                if (!fe::g_state || !fe::g_state->objects.has_value()) {
-                    outcome = fe::Result::Fail(fe::ErrorCode::InvalidState, "not ready");
+                std::lock_guard lock(mpe::g_state_mutex);
+                if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+                    outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidState, "not ready");
                     return;
                 }
-                outcome = fe::unreal::AddMainMenuButton(*fe::g_state->objects, "MULTIPLAYER",
+                outcome = mpe::unreal::AddMainMenuButton(*mpe::g_state->objects, "MULTIPLAYER",
                                                         button);
             },
             20000);
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not reach the game thread: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
         if (!outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("mpbutton failed: {}", outcome.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return 0;
     }
@@ -3307,14 +3307,14 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // actually are. Adding an entry means creating one of the same class the game
         // already uses, so that class has to be read rather than guessed.
         //   +0x560 MainButtonContainer   +0x568 PlayCoop   +0x508 CampaignMenuButton
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        const fe::unreal::ObjectArray& objects = *fe::g_state->objects;
+        const mpe::unreal::ObjectArray& objects = *mpe::g_state->objects;
 
         std::uintptr_t menu = 0;
-        objects.ForEach([&](const fe::unreal::ObjectInfo& object) {
+        objects.ForEach([&](const mpe::unreal::ObjectInfo& object) {
             if (object.name.rfind("Default__", 0) == 0 ||
                 object.class_name != "WBP_MainMenu_C") {
                 return true;
@@ -3323,10 +3323,10 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             return false;
         });
         if (menu == 0) {
-            fe::log::Write(fe::log::Level::Warn, "Mod", "no live WBP_MainMenu_C");
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            mpe::log::Write(mpe::log::Level::Warn, "Mod", "no live WBP_MainMenu_C");
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("main menu at 0x{:X}", menu));
 
         struct Slot { const char* label; std::uintptr_t offset; };
@@ -3336,16 +3336,16 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         };
         for (const Slot& slot : kSlots) {
             std::uintptr_t pointer = 0;
-            if (!fe::unreal::memory::GuardedRead(menu + slot.offset, &pointer,
+            if (!mpe::unreal::memory::GuardedRead(menu + slot.offset, &pointer,
                                                  sizeof(pointer)) ||
                 pointer == 0) {
-                fe::log::Write(fe::log::Level::Warn, "Mod",
+                mpe::log::Write(mpe::log::Level::Warn, "Mod",
                                std::format("  {:<22} unreadable", slot.label));
                 continue;
             }
             std::string class_name = "?";
             std::string object_name = "?";
-            objects.ForEach([&](const fe::unreal::ObjectInfo& candidate) {
+            objects.ForEach([&](const mpe::unreal::ObjectInfo& candidate) {
                 if (candidate.address != pointer) {
                     return true;
                 }
@@ -3353,7 +3353,7 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
                 object_name = candidate.name;
                 return false;
             });
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  {:<22} 0x{:X}  {} : {}", slot.label, pointer,
                                        object_name, class_name));
         }
@@ -3367,37 +3367,37 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         static std::uintptr_t s_open_widget = 0;
 
         const std::string verb = command.substr(std::strlen("ui "));
-        fe::Result        outcome = fe::Result::Success();
+        mpe::Result        outcome = mpe::Result::Success();
         std::uintptr_t    created = 0;
 
-        const fe::Result ran = fe::unreal::RunOnGameThread(
+        const mpe::Result ran = mpe::unreal::RunOnGameThread(
             [&]() {
-                std::lock_guard lock(fe::g_state_mutex);
-                if (!fe::g_state || !fe::g_state->objects.has_value()) {
-                    outcome = fe::Result::Fail(fe::ErrorCode::InvalidState, "not ready");
+                std::lock_guard lock(mpe::g_state_mutex);
+                if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+                    outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidState, "not ready");
                     return;
                 }
                 if (verb.rfind("show ", 0) == 0) {
-                    outcome = fe::unreal::ShowWidget(*fe::g_state->objects,
+                    outcome = mpe::unreal::ShowWidget(*mpe::g_state->objects,
                                                      verb.substr(5), created);
                 } else if (verb.rfind("hide", 0) == 0) {
-                    outcome = fe::unreal::HideWidget(*fe::g_state->objects, s_open_widget);
+                    outcome = mpe::unreal::HideWidget(*mpe::g_state->objects, s_open_widget);
                 } else {
-                    outcome = fe::Result::Fail(fe::ErrorCode::InvalidArgument,
+                    outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidArgument,
                                                "use: ui show <WidgetClass> | ui hide");
                 }
             },
             20000);
 
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not reach the game thread: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
         if (!outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("ui {} failed: {}", verb, outcome.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         if (created != 0) {
             s_open_widget = created;
@@ -3433,13 +3433,13 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             {"speed", 0x09},        {"gravity", 0x0A},
         };
 
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
 
         std::uintptr_t variant = 0;
-        fe::g_state->objects->ForEach([&](const fe::unreal::ObjectInfo& object) {
+        mpe::g_state->objects->ForEach([&](const mpe::unreal::ObjectInfo& object) {
             if (object.name.rfind("Default__", 0) == 0 ||
                 object.class_name != "BlamGameEngineCampaignVariant") {
                 return true;
@@ -3448,9 +3448,9 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             return false;
         });
         if (variant == 0) {
-            fe::log::Write(fe::log::Level::Warn, "Mod",
+            mpe::log::Write(mpe::log::Level::Warn, "Mod",
                            "no live BlamGameEngineCampaignVariant; start a mission first");
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
 
         // Apply any "name=value" pairs given, to every player slot.
@@ -3470,17 +3470,17 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             for (int slot = 0; slot < kPlayerSlots; ++slot) {
                 const std::uintptr_t address =
                     variant + kTraitsBase + (slot * kTraitStride) + field.offset;
-                if (fe::unreal::memory::GuardedWrite(address, &byte, sizeof(byte))) {
+                if (mpe::unreal::memory::GuardedWrite(address, &byte, sizeof(byte))) {
                     ++applied;
                 }
             }
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("trait {} = {} on all {} slot(s)", field.name, value,
                                        kPlayerSlots));
         }
 
         // Report the resulting values so a change is visible rather than assumed.
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("traits on variant 0x{:X} ({} write(s) applied)", variant,
                                    applied));
         for (int slot = 0; slot < kPlayerSlots; ++slot) {
@@ -3489,12 +3489,12 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
                 std::uint8_t value = 0;
                 const std::uintptr_t address =
                     variant + kTraitsBase + (slot * kTraitStride) + field.offset;
-                if (!fe::unreal::memory::GuardedRead(address, &value, sizeof(value))) {
+                if (!mpe::unreal::memory::GuardedRead(address, &value, sizeof(value))) {
                     value = 0xFF;
                 }
                 line += std::format(" {}={}", field.name, value);
             }
-            fe::log::Write(fe::log::Level::Info, "Mod", line);
+            mpe::log::Write(mpe::log::Level::Info, "Mod", line);
         }
         return applied;
     }
@@ -3503,40 +3503,40 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // menu does, which is why they are preferred over anything hand rolled.
         const std::string verb = command.substr(std::strlen("mp "));
 
-        fe::Result outcome = fe::Result::Success();
+        mpe::Result outcome = mpe::Result::Success();
         int        players = 0;
 
-        const fe::Result ran = fe::unreal::RunOnGameThread([&]() {
-            std::lock_guard lock(fe::g_state_mutex);
-            if (!fe::g_state || !fe::g_state->objects.has_value()) {
-                outcome = fe::Result::Fail(fe::ErrorCode::InvalidState, "not ready");
+        const mpe::Result ran = mpe::unreal::RunOnGameThread([&]() {
+            std::lock_guard lock(mpe::g_state_mutex);
+            if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+                outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidState, "not ready");
                 return;
             }
-            const fe::unreal::ObjectArray& objects = *fe::g_state->objects;
+            const mpe::unreal::ObjectArray& objects = *mpe::g_state->objects;
             if (verb.rfind("open", 0) == 0) {
-                outcome = fe::unreal::CallSimple(objects, "MeteoriteLobbyNotifier",
+                outcome = mpe::unreal::CallSimple(objects, "MeteoriteLobbyNotifier",
                                                  "BeginAllowInvites");
             } else if (verb.rfind("close", 0) == 0) {
-                outcome = fe::unreal::CallSimple(objects, "MeteoriteLobbyNotifier",
+                outcome = mpe::unreal::CallSimple(objects, "MeteoriteLobbyNotifier",
                                                  "EndAllowInvites");
             } else if (verb.rfind("players", 0) == 0) {
-                outcome = fe::unreal::CallReturningInt(objects, "MeteoriteSquadLobbyViewModel",
+                outcome = mpe::unreal::CallReturningInt(objects, "MeteoriteSquadLobbyViewModel",
                                                        "GetNumSquadMembers", players);
             } else {
-                outcome = fe::Result::Fail(fe::ErrorCode::InvalidArgument,
+                outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidArgument,
                                            "use: mp open | mp close | mp players");
             }
         });
 
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not reach the game thread: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
         if (!outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("mp {} failed: {}", verb, outcome.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return players;
     }
@@ -3564,29 +3564,29 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
                 }
             }
         }
-        fe::Result        outcome  = fe::Result::Success();
-        const fe::Result  ran      = fe::unreal::RunOnGameThread(
+        mpe::Result        outcome  = mpe::Result::Success();
+        const mpe::Result  ran      = mpe::unreal::RunOnGameThread(
             [&]() {
-                std::lock_guard lock(fe::g_state_mutex);
-                if (!fe::g_state || !fe::g_state->objects.has_value() ||
-                    !fe::g_state->reflection.has_value()) {
-                    outcome = fe::Result::Fail(fe::ErrorCode::InvalidState, "not ready");
+                std::lock_guard lock(mpe::g_state_mutex);
+                if (!mpe::g_state || !mpe::g_state->objects.has_value() ||
+                    !mpe::g_state->reflection.has_value()) {
+                    outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidState, "not ready");
                     return;
                 }
-                outcome = fe::unreal::BeginCampaign(*fe::g_state->objects,
-                                                    *fe::g_state->reflection, scenario,
+                outcome = mpe::unreal::BeginCampaign(*mpe::g_state->objects,
+                                                    *mpe::g_state->reflection, scenario,
                                                     asset, friendly_fire, difficulty);
             },
             60000);
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not reach the game thread: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
         if (!outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("campaign start failed: {}", outcome.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return 0;
     }
@@ -3599,41 +3599,41 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // not class names.
         const std::string fragment = command.substr(std::strlen("funcs "));
 
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
 
         int matched = 0;
-        fe::g_state->objects->ForEach([&](const fe::unreal::ObjectInfo& object) {
+        mpe::g_state->objects->ForEach([&](const mpe::unreal::ObjectInfo& object) {
             if (object.class_name != "Function" && object.class_name != "DelegateFunction") {
                 return true;
             }
             if (object.name.find(fragment) == std::string::npos) {
                 return true;
             }
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  {:<44} {}", object.name,
-                                       fe::g_state->objects->BuildPath(object)));
+                                       mpe::g_state->objects->BuildPath(object)));
             return ++matched < 80;
         });
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("'{}' matched {} function(s)", fragment, matched));
         return matched;
     }
     if (starts_with("pe detect")) {
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        fe::unreal::CallLayout layout;
-        const fe::Result detected =
-            fe::unreal::DetectCallLayout(*fe::g_state->objects, layout);
+        mpe::unreal::CallLayout layout;
+        const mpe::Result detected =
+            mpe::unreal::DetectCallLayout(*mpe::g_state->objects, layout);
         if (!detected.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("ProcessEvent detection failed: {}",
                                        detected.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return layout.vtable_slot;
     }
@@ -3642,15 +3642,15 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // The job records the thread it ran on, which must differ from the caller's.
         const DWORD caller = ::GetCurrentThreadId();
         DWORD       ran_on = 0;
-        const fe::Result ran = fe::unreal::RunOnGameThread([&ran_on]() {
+        const mpe::Result ran = mpe::unreal::RunOnGameThread([&ran_on]() {
             ran_on = ::GetCurrentThreadId();
         });
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("game thread dispatch failed: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("game thread dispatch OK: job ran on thread {}, caller "
                                    "was {}",
                                    ran_on, caller));
@@ -3658,24 +3658,24 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
     }
     if (starts_with("exec ")) {
         const std::string commandText = command.substr(std::strlen("exec "));
-        fe::Result        outcome = fe::Result::Success();
-        const fe::Result  ran = fe::unreal::RunOnGameThread([&]() {
-            std::lock_guard lock(fe::g_state_mutex);
-            if (!fe::g_state || !fe::g_state->objects.has_value()) {
-                outcome = fe::Result::Fail(fe::ErrorCode::InvalidState, "no object array");
+        mpe::Result        outcome = mpe::Result::Success();
+        const mpe::Result  ran = mpe::unreal::RunOnGameThread([&]() {
+            std::lock_guard lock(mpe::g_state_mutex);
+            if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+                outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidState, "no object array");
                 return;
             }
-            outcome = fe::unreal::ExecuteConsoleCommand(*fe::g_state->objects, commandText);
+            outcome = mpe::unreal::ExecuteConsoleCommand(*mpe::g_state->objects, commandText);
         });
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not reach the game thread: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
         if (!outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("command failed: {}", outcome.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return 0;
     }
@@ -3691,28 +3691,28 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             url = command.substr(std::strlen("travel "));
         }
 
-        fe::Result       outcome = fe::Result::Success();
-        const fe::Result ran = fe::unreal::RunOnGameThread([&]() {
-            std::lock_guard lock(fe::g_state_mutex);
-            if (!fe::g_state || !fe::g_state->objects.has_value()) {
-                outcome = fe::Result::Fail(fe::ErrorCode::InvalidState, "no object array");
+        mpe::Result       outcome = mpe::Result::Success();
+        const mpe::Result ran = mpe::unreal::RunOnGameThread([&]() {
+            std::lock_guard lock(mpe::g_state_mutex);
+            if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+                outcome = mpe::Result::Fail(mpe::ErrorCode::InvalidState, "no object array");
                 return;
             }
-            outcome = fe::unreal::Travel(*fe::g_state->objects, url);
+            outcome = mpe::unreal::Travel(*mpe::g_state->objects, url);
         },
         // Travel tears down a world and loads another, which takes far longer than a
         // normal call. Five seconds reported a timeout for work that had in fact started
         // correctly, which is worse than useless because it looks like a failure.
         60000);
         if (!ran.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not reach the game thread: {}", ran.message()));
-            return -static_cast<int>(fe::ErrorCode::Timeout);
+            return -static_cast<int>(mpe::ErrorCode::Timeout);
         }
         if (!outcome.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("travel failed: {}", outcome.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         return 0;
     }
@@ -3727,15 +3727,15 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // shared, and by function size from the exception directory.
         const std::string wanted = command.substr(std::strlen("vtable "));
 
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
 
-        const std::vector<fe::unreal::ObjectInfo> found =
-            fe::g_state->objects->FindByName(wanted, 8);
-        const fe::unreal::ObjectInfo* instance = nullptr;
-        for (const fe::unreal::ObjectInfo& candidate : found) {
+        const std::vector<mpe::unreal::ObjectInfo> found =
+            mpe::g_state->objects->FindByName(wanted, 8);
+        const mpe::unreal::ObjectInfo* instance = nullptr;
+        for (const mpe::unreal::ObjectInfo& candidate : found) {
             // Class objects and defaults share a vtable with the class machinery rather
             // than with instances, so a real instance is what is wanted here.
             if (candidate.class_name != "Class" &&
@@ -3745,20 +3745,20 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             }
         }
         if (instance == nullptr) {
-            fe::log::Write(fe::log::Level::Warn, "Mod",
+            mpe::log::Write(mpe::log::Level::Warn, "Mod",
                            std::format("no live non default instance named '{}'", wanted));
             return 0;
         }
 
         std::uintptr_t table = 0;
-        if (!fe::unreal::memory::GuardedRead(instance->address, &table, sizeof(table)) ||
+        if (!mpe::unreal::memory::GuardedRead(instance->address, &table, sizeof(table)) ||
             table == 0) {
-            fe::log::Write(fe::log::Level::Warn, "Mod", "could not read the virtual table");
+            mpe::log::Write(mpe::log::Level::Warn, "Mod", "could not read the virtual table");
             return 0;
         }
 
         const auto base = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("{} ({}) at 0x{:X}, vtable 0x{:X} (RVA 0x{:X})",
                                    instance->name, instance->class_name, instance->address,
                                    table, table - base));
@@ -3766,14 +3766,14 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         int printed = 0;
         for (int slot = 0; slot < 96; ++slot) {
             std::uintptr_t entry = 0;
-            if (!fe::unreal::memory::GuardedRead(table + slot * sizeof(entry), &entry,
+            if (!mpe::unreal::memory::GuardedRead(table + slot * sizeof(entry), &entry,
                                                  sizeof(entry))) {
                 break;
             }
             if (entry == 0) {
                 break;
             }
-            fe::log::Write(fe::log::Level::Info, "Mod",
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  [{:>3}] 0x{:X}  RVA 0x{:X}", slot, entry,
                                        entry - base));
             ++printed;
@@ -3789,28 +3789,28 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // to be invented and replicated by hand.
         const std::string wanted = command.substr(std::strlen("props "));
 
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state || !fe::g_state->objects.has_value() ||
-            !fe::g_state->reflection.has_value()) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state || !mpe::g_state->objects.has_value() ||
+            !mpe::g_state->reflection.has_value()) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
 
-        const std::vector<fe::unreal::ObjectInfo> found =
-            fe::g_state->objects->FindByName(wanted, 4);
+        const std::vector<mpe::unreal::ObjectInfo> found =
+            mpe::g_state->objects->FindByName(wanted, 4);
         if (found.empty()) {
-            fe::log::Write(fe::log::Level::Warn, "Mod",
+            mpe::log::Write(mpe::log::Level::Warn, "Mod",
                            std::format("no object named '{}'", wanted));
             return 0;
         }
 
         int total = 0;
-        for (const fe::unreal::ObjectInfo& object : found) {
-            const std::vector<fe::unreal::PropertyInfo> properties =
-                fe::g_state->reflection->ReadProperties(object.address);
-            fe::log::Write(fe::log::Level::Info, "Mod",
+        for (const mpe::unreal::ObjectInfo& object : found) {
+            const std::vector<mpe::unreal::PropertyInfo> properties =
+                mpe::g_state->reflection->ReadProperties(object.address);
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("{} ({}) has {} property(ies):", object.name,
                                        object.class_name, properties.size()));
-            for (const fe::unreal::PropertyInfo& property : properties) {
+            for (const mpe::unreal::PropertyInfo& property : properties) {
                 // A StructProperty only reports its own class, which says nothing about
                 // what is inside it. Resolving the inner type turns a wall of
                 // "StructProperty" into a readable tree, which is what makes nested
@@ -3818,11 +3818,11 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
                 std::string detail = property.type_name;
                 if (property.type_name == "StructProperty") {
                     const std::uintptr_t inner =
-                        fe::g_state->reflection->ResolveStructPropertyInner(property.address);
+                        mpe::g_state->reflection->ResolveStructPropertyInner(property.address);
                     if (inner != 0) {
                         std::string inner_name;
-                        fe::g_state->objects->ForEach(
-                            [&](const fe::unreal::ObjectInfo& candidate) {
+                        mpe::g_state->objects->ForEach(
+                            [&](const mpe::unreal::ObjectInfo& candidate) {
                                 if (candidate.address != inner) {
                                     return true;
                                 }
@@ -3834,7 +3834,7 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
                                      : std::format("StructProperty -> {}", inner_name);
                     }
                 }
-                fe::log::Write(fe::log::Level::Info, "Mod",
+                mpe::log::Write(mpe::log::Level::Info, "Mod",
                                std::format("  +0x{:<4X} {:<40} {}", property.offset,
                                            property.name, detail));
                 ++total;
@@ -3843,37 +3843,37 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         return total;
     }
     if (starts_with("pvp on")) {
-        fe::g_enforce_friendly_fire.store(true, std::memory_order_release);
-        const int applied = FE_SetFriendlyFire(1);
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::g_enforce_friendly_fire.store(true, std::memory_order_release);
+        const int applied = MPE_SetFriendlyFire(1);
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("pvp: friendly fire enabled on {} field(s) and will be "
                                    "held on through level loads",
                                    applied));
         return applied;
     }
     if (starts_with("pvp off")) {
-        fe::g_enforce_friendly_fire.store(false, std::memory_order_release);
-        const int applied = FE_SetFriendlyFire(0);
-        fe::log::Write(fe::log::Level::Info, "Mod", "pvp: friendly fire disabled");
+        mpe::g_enforce_friendly_fire.store(false, std::memory_order_release);
+        const int applied = MPE_SetFriendlyFire(0);
+        mpe::log::Write(mpe::log::Level::Info, "Mod", "pvp: friendly fire disabled");
         return applied;
     }
     if (starts_with("pvp status")) {
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("pvp: enforcement is {}",
-                                   fe::g_enforce_friendly_fire.load(std::memory_order_acquire)
+                                   mpe::g_enforce_friendly_fire.load(std::memory_order_acquire)
                                        ? "ON"
                                        : "off"));
-        return FE_LogFriendlyFire();
+        return MPE_LogFriendlyFire();
     }
     if (starts_with("fname")) {
-        fe::unreal::TrampolineInfo info;
-        const fe::Result installed = fe::unreal::InstallFNameTrampoline(info);
+        mpe::unreal::TrampolineInfo info;
+        const mpe::Result installed = mpe::unreal::InstallFNameTrampoline(info);
         if (!installed.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("FName adapter unavailable: {}", installed.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("FName adapter at 0x{:X} (RVA 0x{:X})", info.address,
                                    info.module_offset));
 
@@ -3893,17 +3893,17 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         }
 
         std::uint32_t    index = 0;
-        const fe::Result tested = fe::unreal::TestFNameTrampoline(wanted.c_str(), index);
+        const mpe::Result tested = mpe::unreal::TestFNameTrampoline(wanted.c_str(), index);
         if (!tested.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("FName self test failed: {}", tested.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
         std::string narrow;
         for (const wchar_t character : wanted) {
             narrow.push_back(static_cast<char>(character));
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("FName(\"{}\") resolved to index {}{}", narrow, index,
                                    index == 0 ? "  <- zero, which is both NAME_None and "
                                                 "what a failed call returns"
@@ -3915,10 +3915,10 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // purpose lens on the object graph, and the basis of the session capture below.
         const std::size_t space = command.find(' ');
         if (space == std::string::npos) {
-            fe::log::Write(fe::log::Level::Warn, "Mod", "usage: objects <class name fragment>");
-            return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+            mpe::log::Write(mpe::log::Level::Warn, "Mod", "usage: objects <class name fragment>");
+            return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
         }
-        return fe::LogObjectsMatching(command.substr(space + 1), 400);
+        return mpe::LogObjectsMatching(command.substr(space + 1), 400);
     }
     if (starts_with("net")) {
         // Captures the networking object graph in one pass.
@@ -3937,12 +3937,12 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         };
 
         int total = 0;
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        "=== networking object graph ===================================");
         for (const char* fragment : kNetFragments) {
-            total += fe::LogObjectsMatching(fragment, 24);
+            total += mpe::LogObjectsMatching(fragment, 24);
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("=== {} networking object(s) total ===", total));
         return total;
     }
@@ -3950,15 +3950,15 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         // Arms a hardware watchpoint on every located friendly fire copy, up to the
         // hardware limit of four. This is what identifies the consumer: whichever
         // instruction reads the byte gets recorded with its module and offset.
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        fe::debugtrap::DisarmAll();
-        fe::debugtrap::ClearHits();
+        mpe::debugtrap::DisarmAll();
+        mpe::debugtrap::ClearHits();
 
         int armed = 0;
-        for (const fe::ModState::WatchedField& field : fe::g_state->watched) {
+        for (const mpe::ModState::WatchedField& field : mpe::g_state->watched) {
             if (!field.valid || armed >= 4) {
                 continue;
             }
@@ -3967,20 +3967,20 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
             if (field.label.find("Default__") != std::string::npos) {
                 continue;
             }
-            const fe::Result armed_ok =
-                fe::debugtrap::Arm(field.address, 1, fe::debugtrap::Condition::ReadWrite,
+            const mpe::Result armed_ok =
+                mpe::debugtrap::Arm(field.address, 1, mpe::debugtrap::Condition::ReadWrite,
                                    field.label);
             if (armed_ok.ok()) {
                 ++armed;
-                fe::log::Write(fe::log::Level::Info, "Mod",
+                mpe::log::Write(mpe::log::Level::Info, "Mod",
                                std::format("tracing {} at 0x{:X}", field.label, field.address));
             } else {
-                fe::log::Write(fe::log::Level::Warn, "Mod",
+                mpe::log::Write(mpe::log::Level::Warn, "Mod",
                                std::format("could not trace {}: {}", field.label,
                                            armed_ok.message()));
             }
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("{} watchpoint(s) armed. Start a mission, then run "
                                    "'trace hits'.",
                                    armed));
@@ -3999,34 +3999,34 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         try {
             offset = static_cast<std::uintptr_t>(std::stoull(argument, nullptr, 16));
         } catch (const std::exception&) {
-            fe::log::Write(fe::log::Level::Warn, "Mod",
+            mpe::log::Write(mpe::log::Level::Warn, "Mod",
                            std::format("'{}' is not a hex module offset", argument));
-            return -static_cast<int>(fe::ErrorCode::InvalidArgument);
+            return -static_cast<int>(mpe::ErrorCode::InvalidArgument);
         }
 
         const auto base = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
         const std::uintptr_t address = base + offset;
 
-        const fe::Result armed = fe::debugtrap::Arm(
-            address, 1, fe::debugtrap::Condition::Execute, std::format("exec+0x{:X}", offset));
+        const mpe::Result armed = mpe::debugtrap::Arm(
+            address, 1, mpe::debugtrap::Condition::Execute, std::format("exec+0x{:X}", offset));
         if (!armed.ok()) {
-            fe::log::Write(fe::log::Level::Error, "Mod",
+            mpe::log::Write(mpe::log::Level::Error, "Mod",
                            std::format("could not arm execution trap: {}", armed.message()));
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("execution trap armed on RVA 0x{:X} (0x{:X}); run "
                                    "'trace hits' after a few seconds to see the call rate",
                                    offset, address));
         return 0;
     }
     if (starts_with("trace hits")) {
-        const std::vector<fe::debugtrap::Hit> hits = fe::debugtrap::Hits();
-        fe::log::Write(fe::log::Level::Info, "Mod",
+        const std::vector<mpe::debugtrap::Hit> hits = mpe::debugtrap::Hits();
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
                        std::format("{} distinct instruction(s) touched the watched byte(s)",
                                    hits.size()));
-        for (const fe::debugtrap::Hit& hit : hits) {
-            fe::log::Write(fe::log::Level::Info, "Mod",
+        for (const mpe::debugtrap::Hit& hit : hits) {
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  {}+0x{:X} hit {} time(s) on address 0x{:X} "
                                        "(thread {}, rip 0x{:X})",
                                        hit.module_name, hit.module_offset, hit.count,
@@ -4035,41 +4035,41 @@ __declspec(dllexport) int FE_Command(const char* command_line) {
         return static_cast<int>(hits.size());
     }
     if (starts_with("trace off")) {
-        fe::debugtrap::DisarmAll();
+        mpe::debugtrap::DisarmAll();
         return 0;
     }
     if (starts_with("watch")) {
-        std::lock_guard lock(fe::g_state_mutex);
-        if (!fe::g_state) {
-            return -static_cast<int>(fe::ErrorCode::InvalidState);
+        std::lock_guard lock(mpe::g_state_mutex);
+        if (!mpe::g_state) {
+            return -static_cast<int>(mpe::ErrorCode::InvalidState);
         }
-        fe::log::Write(fe::log::Level::Info, "Mod",
-                       std::format("{} field(s) watched", fe::g_state->watched.size()));
-        for (const fe::ModState::WatchedField& field : fe::g_state->watched) {
-            fe::log::Write(fe::log::Level::Info, "Mod",
+        mpe::log::Write(mpe::log::Level::Info, "Mod",
+                       std::format("{} field(s) watched", mpe::g_state->watched.size()));
+        for (const mpe::ModState::WatchedField& field : mpe::g_state->watched) {
+            mpe::log::Write(mpe::log::Level::Info, "Mod",
                            std::format("  {} at 0x{:X} = {} {}", field.label, field.address,
                                        field.last_value, field.valid ? "" : "(stale)"));
         }
-        return static_cast<int>(fe::g_state->watched.size());
+        return static_cast<int>(mpe::g_state->watched.size());
     }
 
-    fe::log::Write(fe::log::Level::Warn, "Mod", std::format("unknown command: '{}'", command));
-    return -static_cast<int>(fe::ErrorCode::NotFound);
+    mpe::log::Write(mpe::log::Level::Warn, "Mod", std::format("unknown command: '{}'", command));
+    return -static_cast<int>(mpe::ErrorCode::NotFound);
 }
 
 /// Writes the symbol discovery report into the log. The single most useful thing
 /// a user can do when asked to help diagnose a new game build.
-__declspec(dllexport) int FE_DumpDiagnostics() {
-    std::lock_guard lock(fe::g_state_mutex);
-    if (!fe::g_state) {
-        return -static_cast<int>(fe::ErrorCode::InvalidState);
+__declspec(dllexport) int MPE_DumpDiagnostics() {
+    std::lock_guard lock(mpe::g_state_mutex);
+    if (!mpe::g_state) {
+        return -static_cast<int>(mpe::ErrorCode::InvalidState);
     }
-    if (!fe::g_state->symbols.has_value()) {
-        fe::log::Write(fe::log::Level::Error, "Mod",
+    if (!mpe::g_state->symbols.has_value()) {
+        mpe::log::Write(mpe::log::Level::Error, "Mod",
                        "symbol discovery did not complete, so there is no report");
-        return -static_cast<int>(fe::ErrorCode::SymbolNotResolved);
+        return -static_cast<int>(mpe::ErrorCode::SymbolNotResolved);
     }
-    fe::log::Write(fe::log::Level::Info, "Mod", fe::g_state->symbols->BuildDiscoveryReport());
+    mpe::log::Write(mpe::log::Level::Info, "Mod", mpe::g_state->symbols->BuildDiscoveryReport());
     return 0;
 }
 
@@ -4082,13 +4082,13 @@ __declspec(dllexport) int FE_DumpDiagnostics() {
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH: {
-            fe::g_self_module = module;
+            mpe::g_self_module = module;
             ::DisableThreadLibraryCalls(module);
 
             // Startup polls for the engine and for Steam, so it cannot run under
             // the loader lock.
             const HANDLE thread =
-                ::CreateThread(nullptr, 0, &fe::InitializeThread, nullptr, 0, nullptr);
+                ::CreateThread(nullptr, 0, &mpe::InitializeThread, nullptr, 0, nullptr);
             if (thread != nullptr) {
                 ::CloseHandle(thread);
             }
@@ -4099,7 +4099,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             // On process termination Windows has already stopped other threads, so
             // joining ours would deadlock. Only clean up on an explicit unload.
             if (reserved == nullptr) {
-                fe::Shutdown();
+                mpe::Shutdown();
             }
             break;
 

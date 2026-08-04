@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/LobbyUI.h
+// MultiplayerEvolved: Unreal/LobbyUI.h
 //
 // Builds the multiplayer lobby as real UMG, laid out on a canvas.
 //
@@ -26,7 +26,7 @@
 #include "Core/Result.h"
 #include "Unreal/ObjectArray.h"
 
-namespace fe::unreal {
+namespace mpe::unreal {
 
 /// A scenario a match can be played on.
 ///
@@ -398,4 +398,4 @@ void MeasureLobby(const LobbyUIContext& context);
 /// Must run on the game thread.
 [[nodiscard]] Result ProbeLobbyUI(const LobbyUIContext& context);
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

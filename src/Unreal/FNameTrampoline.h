@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/FNameTrampoline.h
+// MultiplayerEvolved: Unreal/FNameTrampoline.h
 //
 // Publishes an FName constructor with the calling convention UE4SS expects.
 //
@@ -45,7 +45,7 @@
 
 #include "Core/Result.h"
 
-namespace fe::unreal {
+namespace mpe::unreal {
 
 /// Where the adapter ended up, for logging and for the self test.
 struct TrampolineInfo {
@@ -75,4 +75,4 @@ struct TrampolineInfo {
 /// index leaves the number as whatever was on the stack.
 [[nodiscard]] Result MakeFName(const wchar_t* name, std::uint64_t& out_name);
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

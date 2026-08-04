@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem ForgeEvolved build.
+rem MultiplayerEvolved build.
 rem
 rem Uses cl.exe directly rather than CMake, because a Visual Studio install always
 rem has the compiler while CMake is a separate download. The project has no third
@@ -51,13 +51,13 @@ rem --- Flags ----------------------------------------------------------------
 rem /MT rather than /MD: static CRT means the mod has no Visual C++
 rem redistributable dependency, which removes the single most common install
 rem failure for a non technical user.
-set COMMON=/nologo /std:c++20 /EHsc /W4 /permissive- /Zc:__cplusplus /Zc:preprocessor /utf-8 /MT /DNOMINMAX /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS /DFE_VERSION_STRING=\"0.1.0\" /I"%ROOT%src"
+set COMMON=/nologo /std:c++20 /EHsc /W4 /permissive- /Zc:__cplusplus /Zc:preprocessor /utf-8 /MT /DNOMINMAX /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS /DMPE_VERSION_STRING=\"0.1.0\" /I"%ROOT%src"
 
 if "%CONFIG%"=="debug" (
-    set CFLAGS=%COMMON% /Od /Zi /D_DEBUG /Fd"%OUT%\ForgeEvolved.pdb"
+    set CFLAGS=%COMMON% /Od /Zi /D_DEBUG /Fd"%OUT%\MultiplayerEvolved.pdb"
     set LFLAGS=/DEBUG
 ) else (
-    set CFLAGS=%COMMON% /O2 /Zi /DNDEBUG /Fd"%OUT%\ForgeEvolved.pdb"
+    set CFLAGS=%COMMON% /O2 /Zi /DNDEBUG /Fd"%OUT%\MultiplayerEvolved.pdb"
     set LFLAGS=/DEBUG /OPT:REF /OPT:ICF
 )
 
@@ -95,13 +95,13 @@ set SOURCES=^
  "%ROOT%src\Update\UpdateCheck.cpp"
 
 echo.
-echo === Building ForgeEvolved.dll (%CONFIG%) ===
+echo === Building MultiplayerEvolved.dll (%CONFIG%) ===
 rem user32.lib is needed for the window based startup gate, which waits for the game to
 rem finish loading before any memory scanning begins.
-cl %CFLAGS% /LD %SOURCES% /Fo"%OUT%\\" /Fe"%OUT%\ForgeEvolved.dll" /link %LFLAGS% version.lib user32.lib
+cl %CFLAGS% /LD %SOURCES% /Fo"%OUT%\\" /Fe"%OUT%\MultiplayerEvolved.dll" /link %LFLAGS% version.lib user32.lib
 if errorlevel 1 (
     echo.
-    echo BUILD FAILED: ForgeEvolved.dll
+    echo BUILD FAILED: MultiplayerEvolved.dll
     exit /b 1
 )
 
@@ -127,10 +127,10 @@ if "%DO_INSTALL%"=="1" (
     )
     echo.
     echo === Installing into %INSTALL_DIR% ===
-    copy /Y "%OUT%\ForgeEvolved.dll" "%INSTALL_DIR%\" >nul || exit /b 1
+    copy /Y "%OUT%\MultiplayerEvolved.dll" "%INSTALL_DIR%\" >nul || exit /b 1
     copy /Y "%OUT%\version.dll"      "%INSTALL_DIR%\" >nul || exit /b 1
-    if not exist "%INSTALL_DIR%\ForgeEvolved" mkdir "%INSTALL_DIR%\ForgeEvolved"
-    xcopy /Y /E /I "%ROOT%data" "%INSTALL_DIR%\ForgeEvolved" >nul || exit /b 1
+    if not exist "%INSTALL_DIR%\MultiplayerEvolved" mkdir "%INSTALL_DIR%\MultiplayerEvolved"
+    xcopy /Y /E /I "%ROOT%data" "%INSTALL_DIR%\MultiplayerEvolved" >nul || exit /b 1
     echo Installed.
 )
 

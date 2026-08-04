@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/NamePool.cpp
-#define FE_LOG_CATEGORY "Unreal.Names"
+// MultiplayerEvolved: Unreal/NamePool.cpp
+#define MPE_LOG_CATEGORY "Unreal.Names"
 
 #include "Unreal/NamePool.h"
 
@@ -15,7 +15,7 @@
 #include <cstring>
 #include <format>
 
-namespace fe::unreal {
+namespace mpe::unreal {
 namespace {
 
 /// Readability test, delegated to the cached implementation.
@@ -150,7 +150,7 @@ Expected<NamePool> NamePool::Locate() {
         }
 
         const memory::CacheStats stats = memory::Stats();
-        FE_LOG_INFO("FName pool located: Blocks at 0x{:X} ({} populated block(s), inspected {} "
+        MPE_LOG_INFO("FName pool located: Blocks at 0x{:X} ({} populated block(s), inspected {} "
                     "slot(s) with {} VirtualQuery call(s), {} cache hit(s), {} yield(s))",
                     pool.blocks_address_, pool.PopulatedBlockCount(), inspected, stats.queries,
                     stats.hits, pacer.YieldCount());
@@ -182,7 +182,7 @@ Expected<NamePool> NamePool::FromBlocks(std::uintptr_t blocks_address) {
                                  blocks_address)};
     }
 
-    FE_LOG_INFO("FName pool taken directly: Blocks at 0x{:X} ({} populated block(s))",
+    MPE_LOG_INFO("FName pool taken directly: Blocks at 0x{:X} ({} populated block(s))",
                 pool.blocks_address_, pool.PopulatedBlockCount());
     return pool;
 }
@@ -343,4 +343,4 @@ Expected<std::uint32_t> NamePool::FindIndexOf(std::string_view name,
                              limit)};
 }
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

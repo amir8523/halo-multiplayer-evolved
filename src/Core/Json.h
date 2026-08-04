@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Json.h
+// MultiplayerEvolved: Core/Json.h
 //
 // Self contained JSON reader and writer.
 //
@@ -42,7 +42,7 @@
 #include <utility>
 #include <vector>
 
-namespace fe::json {
+namespace mpe::json {
 
 /// Thrown for any malformed document. Contained at the call site in every
 /// consumer; nothing in this project lets a JSON exception escape.
@@ -245,4 +245,4 @@ template <> [[nodiscard]] std::vector<std::size_t> Value::get<std::vector<std::s
 // Note: no separate specialization for int. On MSVC x64 int and std::int32_t are
 // the same type, so declaring both would be a redefinition.
 
-} // namespace fe::json
+} // namespace mpe::json

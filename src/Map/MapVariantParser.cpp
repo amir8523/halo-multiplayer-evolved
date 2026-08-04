@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Map/MapVariantParser.cpp
-#define FE_LOG_CATEGORY "Map.Parser"
+// MultiplayerEvolved: Map/MapVariantParser.cpp
+#define MPE_LOG_CATEGORY "Map.Parser"
 
 #include "Map/MapVariantParser.h"
 
@@ -14,14 +14,14 @@
 #include <format>
 #include <unordered_set>
 
-namespace fe::map {
+namespace mpe::map {
 namespace {
 
-using json = fe::json::Value;
+using json = mpe::json::Value;
 
 /// Same type as json; the distinct name documents that the writer relies on
 /// objects preserving insertion order.
-using OrderedJson = fe::json::Value;
+using OrderedJson = mpe::json::Value;
 
 // ---------------------------------------------------------------------------
 // Diagnostic collection
@@ -817,10 +817,10 @@ Expected<ParseResult> ParseJsonText(std::string_view json_text, const ParseOptio
         // Exceptions are contained here and converted; nothing throws past this
         // function.
         root = json::parse(json_text, nullptr, true, true);
-    } catch (const fe::json::parse_error& e) {
+    } catch (const mpe::json::parse_error& e) {
         return Error{ErrorCode::ParseError,
                      std::format("invalid JSON at byte {}: {}", e.byte, e.what())};
-    } catch (const fe::json::exception& e) {
+    } catch (const mpe::json::exception& e) {
         return Error{ErrorCode::ParseError, std::format("invalid JSON: {}", e.what())};
     }
 
@@ -843,7 +843,7 @@ Expected<ParseResult> ParseJsonText(std::string_view json_text, const ParseOptio
         variant.schema_version > kSchemaVersion) {
         return Error{ErrorCode::SchemaMismatch,
                      std::format("map schema_version {} is not supported; this build reads {} to "
-                                 "{}. Update ForgeEvolved to open this map.",
+                                 "{}. Update MultiplayerEvolved to open this map.",
                                  variant.schema_version, kMinSupportedSchemaVersion,
                                  kSchemaVersion)};
     }
@@ -994,7 +994,7 @@ Expected<ParseResult> ParseJsonFile(const std::filesystem::path& path,
         return Error{parsed.error().code,
                      std::format("{}: {}", path.filename().string(), parsed.error().message)};
     }
-    FE_LOG_INFO("parsed map '{}' from {} ({} objects, {} spawns, {} objectives, {} warnings)",
+    MPE_LOG_INFO("parsed map '{}' from {} ({} objects, {} spawns, {} objectives, {} warnings)",
                 parsed.value().variant.name, path.filename().string(),
                 parsed.value().variant.objects.size(), parsed.value().variant.spawns.size(),
                 parsed.value().variant.objectives.size(), parsed.value().diagnostics.size());
@@ -1425,4 +1425,4 @@ hash::Digest256 ComputeContentHash(const MapVariant& variant) {
     return hash::Sha256::Compute(canonical);
 }
 
-} // namespace fe::map
+} // namespace mpe::map

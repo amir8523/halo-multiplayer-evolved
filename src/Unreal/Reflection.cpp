@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/Reflection.cpp
-#define FE_LOG_CATEGORY "Unreal.Reflect"
+// MultiplayerEvolved: Unreal/Reflection.cpp
+#define MPE_LOG_CATEGORY "Unreal.Reflect"
 
 #include "Unreal/Reflection.h"
 
@@ -12,7 +12,7 @@
 #include <limits>
 #include <unordered_set>
 
-namespace fe::unreal {
+namespace mpe::unreal {
 namespace {
 
 /// True when text looks like a UE field or type name.
@@ -586,5 +586,5 @@ std::string Reflection::ProbeStructLayout(std::uintptr_t struct_address,
     return out;
 }
 
-} // namespace fe::unreal
+} // namespace mpe::unreal
 

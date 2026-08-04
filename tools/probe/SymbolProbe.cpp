@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: tools/probe/SymbolProbe.cpp
+// MultiplayerEvolved: tools/probe/SymbolProbe.cpp
 //
 // Standalone validator for the Blam symbol discovery.
 //
@@ -225,7 +225,7 @@ int wmain(int argc, wchar_t** argv) {
 
     // Discovery logs at debug level; send it to the console so the reasoning is
     // visible rather than only the verdict.
-    fe::log::Initialize(std::filesystem::path("SymbolProbe.log"), fe::log::Level::Debug);
+    mpe::log::Initialize(std::filesystem::path("SymbolProbe.log"), mpe::log::Level::Debug);
 
     std::string note;
     const std::uintptr_t base = ManualMapImage(path, note);
@@ -235,7 +235,7 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     const auto image =
-        fe::blam::ModuleImage::FromMappedImage(base, "HaloSimulation_tag_release.dll");
+        mpe::blam::ModuleImage::FromMappedImage(base, "HaloSimulation_tag_release.dll");
     if (!image.ok()) {
         Print(std::format("FAIL parse: {}", image.message()));
         return 1;
@@ -245,8 +245,8 @@ int wmain(int argc, wchar_t** argv) {
 
     // Step 1: prove the anchors exist. If an anchor is missing, discovery cannot
     // work and the reason is the binary, not the algorithm.
-    const fe::blam::PatternScanner scanner(image.value());
-    const auto config = fe::blam::SymbolRegistryConfig::Default();
+    const mpe::blam::PatternScanner scanner(image.value());
+    const auto config = mpe::blam::SymbolRegistryConfig::Default();
 
     Print("");
     Print("--- string literal search ---");
@@ -269,7 +269,7 @@ int wmain(int argc, wchar_t** argv) {
     // Step 2: run the real discovery.
     Print("");
     Print("--- discovery ---");
-    auto registry = fe::blam::SymbolRegistry::Discover(image.value(), config);
+    auto registry = mpe::blam::SymbolRegistry::Discover(image.value(), config);
     if (!registry.ok()) {
         Print(std::format("FAIL discovery: {}", registry.message()));
         Print("");
@@ -320,7 +320,7 @@ int wmain(int argc, wchar_t** argv) {
         const char* const kDumpPath = "all_symbols.txt";
         std::FILE* dump = nullptr;
         if (fopen_s(&dump, kDumpPath, "wb") == 0 && dump != nullptr) {
-            std::fprintf(dump, "# ForgeEvolved symbol dump\n");
+            std::fprintf(dump, "# MultiplayerEvolved symbol dump\n");
             std::fprintf(dump, "# %zu records across %zu tables\n",
                          registry.value().Count(), registry.value().Tables().size());
             std::fprintf(dump, "# columns: address stride table name [type value]\n");

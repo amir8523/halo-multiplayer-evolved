@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Hash.h
+// MultiplayerEvolved: Core/Hash.h
 //
 // Deterministic hashing primitives.
 //
@@ -23,7 +23,7 @@
 #include <string>
 #include <string_view>
 
-namespace fe::hash {
+namespace mpe::hash {
 
 /// FNV-1a, 64 bit. constexpr so switch tables over string keys compile to
 /// integer comparisons.
@@ -86,4 +86,4 @@ private:
     bool                         finalized_{false};
 };
 
-} // namespace fe::hash
+} // namespace mpe::hash

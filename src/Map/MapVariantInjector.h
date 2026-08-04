@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Map/MapVariantInjector.h
+// MultiplayerEvolved: Map/MapVariantInjector.h
 //
 // Applies a validated MapVariant to the live game world.
 //
@@ -29,7 +29,7 @@
 #include "Engine/IEngineControl.h"
 #include "Map/MapVariant.h"
 
-namespace fe::map {
+namespace mpe::map {
 
 /// Palette keys the injector uses for gameplay markers. Defined here so the
 /// authoring tool, the parser and the injector cannot disagree.
@@ -97,4 +97,4 @@ private:
     std::vector<engine::SandboxObjectHandle>       spawned_;
 };
 
-} // namespace fe::map
+} // namespace mpe::map

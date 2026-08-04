@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Json.cpp
+// MultiplayerEvolved: Core/Json.cpp
 #include "Core/Json.h"
 
 #include <algorithm>
@@ -11,7 +11,7 @@
 #include <limits>
 #include <sstream>
 
-namespace fe::json {
+namespace mpe::json {
 namespace {
 
 /// Hard ceiling on a parsed document. The map parser applies its own, smaller
@@ -765,4 +765,4 @@ Value Value::parse(std::istream& stream, std::nullptr_t, bool throw_on_error,
     return parse(text, nullptr, throw_on_error, allow_comments);
 }
 
-} // namespace fe::json
+} // namespace mpe::json

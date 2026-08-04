@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/SteamSocketsTransport.h
+// MultiplayerEvolved: Net/SteamSocketsTransport.h
 //
 // IPeerTransport over ISteamNetworkingSockets with the Steam Datagram Relay.
 //
@@ -14,7 +14,7 @@
 //
 // NO SDK REQUIRED
 //
-// Every Steam call goes through fe::steam, which binds dynamically to the
+// Every Steam call goes through mpe::steam, which binds dynamically to the
 // steam_api64.dll the game already ships. Building the mod needs a compiler and
 // nothing else.
 //
@@ -44,12 +44,12 @@
 #include "Net/IPeerTransport.h"
 #include "Steam/SteamApi.h"
 
-namespace fe::net {
+namespace mpe::net {
 
 /// Construction time options.
 struct SteamTransportOptions {
     /// Virtual port for the P2P listen socket. Peers must agree. Distinct from any
-    /// port the game itself uses, so ForgeEvolved traffic cannot collide with the
+    /// port the game itself uses, so MultiplayerEvolved traffic cannot collide with the
     /// shipped session code.
     int virtual_port{22701};
 
@@ -68,7 +68,7 @@ struct SteamTransportOptions {
 class SteamSocketsTransport final : public IPeerTransport {
 public:
     /// Verifies that the Steam networking interfaces resolved before constructing.
-    /// fe::steam::Initialize must already have succeeded.
+    /// mpe::steam::Initialize must already have succeeded.
     [[nodiscard]] static Expected<std::unique_ptr<SteamSocketsTransport>> Create(
         const SteamTransportOptions& options);
 
@@ -184,4 +184,4 @@ private:
     std::deque<PendingStatusChange> pending_; ///< Guarded by queue_mutex_.
 };
 
-} // namespace fe::net
+} // namespace mpe::net

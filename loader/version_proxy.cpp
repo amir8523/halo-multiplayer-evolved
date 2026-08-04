@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: loader/version_proxy.cpp
+// MultiplayerEvolved: loader/version_proxy.cpp
 //
 // Minimal proxy for VERSION.dll.
 //
@@ -63,8 +63,8 @@
 
 namespace {
 
-constexpr const wchar_t* kModFileName  = L"ForgeEvolved.dll";
-constexpr const wchar_t* kLoaderLogName = L"ForgeEvolved\\loader.log";
+constexpr const wchar_t* kModFileName  = L"MultiplayerEvolved.dll";
+constexpr const wchar_t* kLoaderLogName = L"MultiplayerEvolved\\loader.log";
 
 HMODULE g_mod_module = nullptr;
 
@@ -91,7 +91,7 @@ void LogLine(const wchar_t* format, ...) {
 
     // The subdirectory may not exist yet on a fresh install.
     wchar_t log_directory[MAX_PATH] = {};
-    if (swprintf_s(log_directory, MAX_PATH, L"%sForgeEvolved", directory) >= 0) {
+    if (swprintf_s(log_directory, MAX_PATH, L"%sMultiplayerEvolved", directory) >= 0) {
         ::CreateDirectoryW(log_directory, nullptr);
     }
 

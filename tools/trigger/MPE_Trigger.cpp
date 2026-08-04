@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: tools/trigger/FE_Trigger.cpp
+// MultiplayerEvolved: tools/trigger/MPE_Trigger.cpp
 //
-// Sends a command to ForgeEvolved running inside the game.
+// Sends a command to MultiplayerEvolved running inside the game.
 //
 // WHY THIS EXISTS
 //
@@ -10,27 +10,27 @@
 // calls them.
 //
 // This tool closes that gap. It writes a command string into the game's address space
-// and starts a thread at the mod's FE_Command export. That is the whole mechanism, and
+// and starts a thread at the mod's MPE_Command export. That is the whole mechanism, and
 // it is enough to drive every operation the mod exposes.
 //
 // HOW THE ADDRESS IS FOUND
 //
-// CreateRemoteThread needs the address of FE_Command inside the game process, which is
+// CreateRemoteThread needs the address of MPE_Command inside the game process, which is
 // not the address it has here. Both are the same DLL, so the offset from module base to
 // the export is identical in both processes:
 //
-//   1. Load our own copy of ForgeEvolved.dll locally, without running its DllMain, and
+//   1. Load our own copy of MultiplayerEvolved.dll locally, without running its DllMain, and
 //      ask for the export. Subtracting the local base gives the offset.
-//   2. Find the module base of ForgeEvolved.dll inside the game.
+//   2. Find the module base of MultiplayerEvolved.dll inside the game.
 //   3. Remote address is remote base plus that offset.
 //
 // No pattern scanning and no hardcoded addresses: the loader already solved this.
 //
 // Usage:
-//   FE_Trigger.exe "ff status"
-//   FE_Trigger.exe "ff on"
-//   FE_Trigger.exe "diag"
-//   FE_Trigger.exe "globals cheat"
+//   MPE_Trigger.exe "ff status"
+//   MPE_Trigger.exe "ff on"
+//   MPE_Trigger.exe "diag"
+//   MPE_Trigger.exe "globals cheat"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -110,14 +110,14 @@ void Print(const std::string& text) {
     // mod here does not start a second copy of it.
     const HMODULE local = ::LoadLibraryExW(dll_path, nullptr, DONT_RESOLVE_DLL_REFERENCES);
     if (local == nullptr) {
-        out_error = "could not map ForgeEvolved.dll locally, error " +
+        out_error = "could not map MultiplayerEvolved.dll locally, error " +
                     std::to_string(::GetLastError());
         return 0;
     }
 
     const FARPROC address = ::GetProcAddress(local, export_name);
     if (address == nullptr) {
-        out_error = std::string("this build of ForgeEvolved.dll does not export ") + export_name;
+        out_error = std::string("this build of MultiplayerEvolved.dll does not export ") + export_name;
         ::FreeLibrary(local);
         return 0;
     }
@@ -132,7 +132,7 @@ void Print(const std::string& text) {
 
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2) {
-        Print("usage: FE_Trigger.exe \"<command>\"");
+        Print("usage: MPE_Trigger.exe \"<command>\"");
         Print("  ff status | ff on | ff off | diag | globals <substring> | watch");
         return 2;
     }
@@ -155,18 +155,18 @@ int wmain(int argc, wchar_t** argv) {
     if (wchar_t* slash = ::wcsrchr(tool_path, L'\\'); slash != nullptr) {
         *(slash + 1) = L'\0';
     }
-    const std::wstring dll_path = std::wstring(tool_path) + L"ForgeEvolved.dll";
+    const std::wstring dll_path = std::wstring(tool_path) + L"MultiplayerEvolved.dll";
 
     std::string          error;
-    const std::uintptr_t offset = FindExportOffset(dll_path.c_str(), "FE_Command", error);
+    const std::uintptr_t offset = FindExportOffset(dll_path.c_str(), "MPE_Command", error);
     if (offset == 0) {
         Print(error);
         return 1;
     }
 
-    const std::uintptr_t remote_base = FindRemoteModuleBase(process_id, L"ForgeEvolved.dll");
+    const std::uintptr_t remote_base = FindRemoteModuleBase(process_id, L"MultiplayerEvolved.dll");
     if (remote_base == 0) {
-        Print("ForgeEvolved.dll is not loaded in the game; is the mod installed?");
+        Print("MultiplayerEvolved.dll is not loaded in the game; is the mod installed?");
         return 1;
     }
 
@@ -227,6 +227,6 @@ int wmain(int argc, wchar_t** argv) {
     ::VirtualFreeEx(process, remote_text, 0, MEM_RELEASE);
     ::CloseHandle(process);
 
-    Print("see ForgeEvolved\\ForgeEvolved.log for the output");
+    Print("see MultiplayerEvolved\\MultiplayerEvolved.log for the output");
     return (wait == WAIT_OBJECT_0) ? 0 : 1;
 }

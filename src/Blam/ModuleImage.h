@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/ModuleImage.h
+// MultiplayerEvolved: Blam/ModuleImage.h
 //
 // Read only view of a loaded PE module.
 //
@@ -26,7 +26,7 @@
 
 #include "Core/Result.h"
 
-namespace fe::blam {
+namespace mpe::blam {
 
 /// One PE section mapped into memory.
 struct Section {
@@ -96,4 +96,4 @@ private:
     std::vector<Section> sections_;
 };
 
-} // namespace fe::blam
+} // namespace mpe::blam

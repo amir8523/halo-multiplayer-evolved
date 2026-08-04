@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/Reflection.h
+// MultiplayerEvolved: Unreal/Reflection.h
 //
 // Walks UE5 UStruct property chains to recover field names, types and offsets.
 //
@@ -47,7 +47,7 @@
 #include "Core/Result.h"
 #include "Unreal/NamePool.h"
 
-namespace fe::unreal {
+namespace mpe::unreal {
 
 /// Starting guesses, the documented UE5 layout. Replaced at runtime by DetectLayout.
 inline constexpr std::size_t kStructSuperOffset            = 0x30;
@@ -211,4 +211,4 @@ private:
     ReflectionLayout layout_{};
 };
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

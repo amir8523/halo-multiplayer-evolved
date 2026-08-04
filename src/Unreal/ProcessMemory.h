@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/ProcessMemory.h
+// MultiplayerEvolved: Unreal/ProcessMemory.h
 //
 // Safe reads of arbitrary process memory, with a region cache.
 //
@@ -35,7 +35,7 @@
 #include <string>
 #include <type_traits>
 
-namespace fe::unreal::memory {
+namespace mpe::unreal::memory {
 
 /// Copies memory under a structured exception handler, returning false if the read
 /// faults.
@@ -132,4 +132,4 @@ template <typename T>
     return address >= 0x10000u && address < 0x7FFFFFFFFFFFu && (address & 0x7u) == 0u;
 }
 
-} // namespace fe::unreal::memory
+} // namespace mpe::unreal::memory

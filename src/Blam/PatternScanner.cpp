@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/PatternScanner.cpp
-#define FE_LOG_CATEGORY "Blam.Scanner"
+// MultiplayerEvolved: Blam/PatternScanner.cpp
+#define MPE_LOG_CATEGORY "Blam.Scanner"
 
 #include "Blam/PatternScanner.h"
 
@@ -9,7 +9,7 @@
 #include <cctype>
 #include <cstring>
 
-namespace fe::blam {
+namespace mpe::blam {
 namespace {
 
 [[nodiscard]] bool ParseHexDigit(char c, std::uint8_t& out) noexcept {
@@ -252,4 +252,4 @@ bool PatternScanner::IsPlausibleIdentifier(std::uintptr_t address, std::size_t m
     return !(first >= '0' && first <= '9') && first != '.';
 }
 
-} // namespace fe::blam
+} // namespace mpe::blam

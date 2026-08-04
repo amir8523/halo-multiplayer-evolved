@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Engine/IEngineControl.cpp
+// MultiplayerEvolved: Engine/IEngineControl.cpp
 //
 // Enum plumbing and settings validation. Kept out of the header so the
 // interface stays readable.
@@ -7,7 +7,7 @@
 
 #include <format>
 
-namespace fe::engine {
+namespace mpe::engine {
 
 std::string_view ToString(GameMode mode) noexcept {
     switch (mode) {
@@ -123,4 +123,4 @@ std::string EngineCapabilities::Describe() const {
         SufficientToJoin());
 }
 
-} // namespace fe::engine
+} // namespace mpe::engine

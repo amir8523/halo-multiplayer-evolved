@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/PacketProtocol.cpp
-#define FE_LOG_CATEGORY "Net.Protocol"
+// MultiplayerEvolved: Net/PacketProtocol.cpp
+#define MPE_LOG_CATEGORY "Net.Protocol"
 
 #include "Net/PacketProtocol.h"
 
@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <format>
 
-namespace fe::net {
+namespace mpe::net {
 namespace {
 
 /// Recognized message types. DecodePacket rejects anything absent from this set
@@ -596,4 +596,4 @@ Expected<ChatMessageBody> ChatMessageBody::Read(ByteReader& reader) {
     return body;
 }
 
-} // namespace fe::net
+} // namespace mpe::net

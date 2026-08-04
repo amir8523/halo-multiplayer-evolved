@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Engine/IEngineControl.h
+// MultiplayerEvolved: Engine/IEngineControl.h
 //
-// The single seam between ForgeEvolved's own logic and the host game.
+// The single seam between MultiplayerEvolved's own logic and the host game.
 //
 // Nothing above this interface knows that the game is Blam, that it is hosted
 // inside a UE5 shell, or that commands travel through a debug console. The
@@ -25,12 +25,12 @@
 
 #include "Core/Result.h"
 
-namespace fe::engine {
+namespace mpe::engine {
 
 /// Mirrors the engine's own session classes, verified present in the shipping
 /// module as network_session_class_none / _offline / _system_link / _xbox_live.
 ///
-/// SystemLink is the class ForgeEvolved drives. It is the engine's direct peer
+/// SystemLink is the class MultiplayerEvolved drives. It is the engine's direct peer
 /// to peer path with no platform account service in the loop, which is exactly
 /// what we want once SteamSocketsTransport is carrying the datagrams.
 enum class SessionClass : std::uint8_t {
@@ -48,7 +48,7 @@ enum class SessionPrivacy : std::uint8_t {
 };
 
 /// Classic gametypes. These map onto game engine variants that already exist in
-/// the shipped simulation; ForgeEvolved selects and configures them rather than
+/// the shipped simulation; MultiplayerEvolved selects and configures them rather than
 /// reimplementing their rules.
 enum class GameMode : std::uint8_t {
     Slayer = 0,
@@ -165,7 +165,7 @@ public:
     /// budget instead of self inflicting packet loss.
     [[nodiscard]] virtual Result SetSimulationBandwidth(std::uint32_t bytes_per_second) = 0;
 
-    /// Host migration is disabled while ForgeEvolved owns the transport: our
+    /// Host migration is disabled while MultiplayerEvolved owns the transport: our
     /// listen server model designates the host explicitly, and a speculative
     /// migration mid match would fight it.
     [[nodiscard]] virtual Result SetHostMigrationEnabled(bool enabled) = 0;
@@ -213,4 +213,4 @@ public:
     [[nodiscard]] virtual Result ExecuteConsoleCommand(std::string_view command_line) = 0;
 };
 
-} // namespace fe::engine
+} // namespace mpe::engine

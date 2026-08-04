@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Map/MapVariant.cpp
+// MultiplayerEvolved: Map/MapVariant.cpp
 #include "Map/MapVariant.h"
 
 #include <algorithm>
 
-namespace fe::map {
+namespace mpe::map {
 
 std::string_view ToString(PhysicsMode mode) noexcept {
     switch (mode) {
@@ -95,4 +95,4 @@ std::size_t MapVariant::ObjectiveCount(ObjectiveKind kind, std::uint8_t team) co
                       }));
 }
 
-} // namespace fe::map
+} // namespace mpe::map

@@ -1,4 +1,4 @@
-# ForgeEvolved architecture
+# MultiplayerEvolved architecture
 
 ## What the game actually is
 
@@ -31,7 +31,7 @@ that the shipped systems are missing, and let Blam remain authoritative.
 
 ```
                  ┌──────────────────────────────────────────┐
-   UI / script → │  Public C API  (FE_HostSession, ...)      │
+   UI / script → │  Public C API  (MPE_HostSession, ...)      │
                  └────────────────────┬─────────────────────┘
                                       │
                  ┌────────────────────▼─────────────────────┐
@@ -256,7 +256,7 @@ resolved registry that guesses at a missing entry is how mods corrupt saves.
 When discovery fails, `SymbolRegistry::BuildDiscoveryReport` emits the table
 geometry, the first records, and a hex dump of one record annotated with which
 fields point into the module and what strings they resolve to. That report is what
-a contributor attaches to an issue, and `FE_DumpDiagnostics()` writes it on
+a contributor attaches to an issue, and `MPE_DumpDiagnostics()` writes it on
 demand.
 
 Supporting a new game patch is adding a JSON file under `data/symbols/`, named

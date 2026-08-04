@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Update/UpdateCheck.cpp
-#define FE_LOG_CATEGORY "Update"
+// MultiplayerEvolved: Update/UpdateCheck.cpp
+#define MPE_LOG_CATEGORY "Update"
 
 #include "Update/UpdateCheck.h"
 
@@ -15,7 +15,7 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-namespace fe::update {
+namespace mpe::update {
 namespace {
 
 /// A WinHTTP handle that closes itself.
@@ -109,7 +109,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
         return Error{ErrorCode::InvalidArgument, "no repository given"};
     }
 
-    const Handle session(WinHttpOpen(L"ForgeEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    const Handle session(WinHttpOpen(L"MultiplayerEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session) {
         return Error{ErrorCode::InvalidState, "could not open an HTTP session"};
@@ -145,7 +145,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
 
     // GitHub rejects requests without a user agent, and serves the stable v3 schema only
     // when it is asked for by name.
-    const wchar_t* headers = L"User-Agent: ForgeEvolved\r\n"
+    const wchar_t* headers = L"User-Agent: MultiplayerEvolved\r\n"
                              L"Accept: application/vnd.github+json\r\n";
     if (WinHttpSendRequest(request.get(), headers, static_cast<DWORD>(-1),
                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) == FALSE ||
@@ -182,8 +182,12 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
         release.version.erase(0, 1);
     }
 
-    // The first asset that is a DLL. A release also carries source archives, which are not
-    // what a player needs to install.
+    // The mod's own DLL, by exact name.
+    //
+    // Matching the first asset ending in .dll was wrong: a release also ships version.dll,
+    // the loader proxy, and picking that one would stage the loader as though it were the
+    // mod. Whichever happened to be uploaded first would decide, which is not a thing worth
+    // leaving to chance when the result gets loaded as code.
     if (document.contains("assets") && document.at("assets").is_array()) {
         const json::Value& assets = document.at("assets");
         for (std::size_t index = 0; index < assets.size(); ++index) {
@@ -192,7 +196,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
                 continue;
             }
             const std::string name = asset.at("name").get<std::string>();
-            if (name.size() < 4 || name.compare(name.size() - 4, 4, ".dll") != 0) {
+            if (name != "MultiplayerEvolved.dll") {
                 continue;
             }
             release.asset_name = name;
@@ -206,7 +210,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
         }
     }
 
-    FE_LOG_INFO("newest release is {} ({})", release.version,
+    MPE_LOG_INFO("newest release is {} ({})", release.version,
                 release.asset_name.empty() ? "no downloadable asset" : release.asset_name);
     return release;
 }
@@ -242,7 +246,7 @@ Result DownloadRelease(const ReleaseInfo& release, const std::wstring& game_bina
         return Result::Fail(ErrorCode::InvalidArgument, "the download URL is not HTTPS");
     }
 
-    const Handle session(WinHttpOpen(L"ForgeEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    const Handle session(WinHttpOpen(L"MultiplayerEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session) {
         return Result::Fail(ErrorCode::InvalidState, "could not open an HTTP session");
@@ -257,7 +261,7 @@ Result DownloadRelease(const ReleaseInfo& release, const std::wstring& game_bina
     if (!request) {
         return Result::Fail(ErrorCode::InvalidState, "could not build the download request");
     }
-    if (WinHttpSendRequest(request.get(), L"User-Agent: ForgeEvolved\r\n",
+    if (WinHttpSendRequest(request.get(), L"User-Agent: MultiplayerEvolved\r\n",
                            static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) == FALSE ||
         WinHttpReceiveResponse(request.get(), nullptr) == FALSE) {
         return Result::Fail(ErrorCode::InvalidState, "the download request failed");
@@ -276,7 +280,7 @@ Result DownloadRelease(const ReleaseInfo& release, const std::wstring& game_bina
 
     // Written under a temporary name and renamed only once the whole file has arrived, so a
     // download cut halfway through cannot leave something the loader would try to run.
-    const std::wstring pending  = game_binaries_directory + L"ForgeEvolved.dll.pending";
+    const std::wstring pending  = game_binaries_directory + L"MultiplayerEvolved.dll.pending";
     const std::wstring partial  = pending + L".part";
     const HANDLE       file     = ::CreateFileW(partial.c_str(), GENERIC_WRITE, 0, nullptr,
                                                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -332,9 +336,9 @@ Result DownloadRelease(const ReleaseInfo& release, const std::wstring& game_bina
         return Result::Fail(ErrorCode::InvalidState, "the download could not be put in place");
     }
 
-    FE_LOG_INFO("update {} downloaded ({} bytes); it will be applied at the next start",
+    MPE_LOG_INFO("update {} downloaded ({} bytes); it will be applied at the next start",
                 release.version, received);
     return Result::Success();
 }
 
-} // namespace fe::update
+} // namespace mpe::update

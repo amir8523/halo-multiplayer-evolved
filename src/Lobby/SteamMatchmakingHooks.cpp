@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Lobby/SteamMatchmakingHooks.cpp
-#define FE_LOG_CATEGORY "Lobby.Steam"
+// MultiplayerEvolved: Lobby/SteamMatchmakingHooks.cpp
+#define MPE_LOG_CATEGORY "Lobby.Steam"
 
 #include "Lobby/SteamMatchmakingHooks.h"
 
@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <format>
 
-namespace fe::lobby {
+namespace mpe::lobby {
 namespace {
 
 /// Steam caps lobby metadata values. Longer values are rejected by the platform
@@ -31,7 +31,7 @@ constexpr std::uint32_t kMaxLobbyMembers = 250;
 Expected<std::unique_ptr<SteamMatchmakingHooks>> SteamMatchmakingHooks::CreateInstance() {
     if (!steam::IsInitialized()) {
         return Error{ErrorCode::SteamUnavailable,
-                     "the Steam binding is not initialized; call fe::steam::Initialize first"};
+                     "the Steam binding is not initialized; call mpe::steam::Initialize first"};
     }
     if (!steam::IsLoggedOn()) {
         return Error{ErrorCode::SteamUnavailable,
@@ -56,7 +56,7 @@ Expected<std::unique_ptr<SteamMatchmakingHooks>> SteamMatchmakingHooks::CreateIn
     hooks->rich_presence_join_callback_.Register(
         hooks.get(), &SteamMatchmakingHooks::OnRichPresenceJoinRequested);
 
-    FE_LOG_INFO("steam matchmaking hooks registered for user {}", local);
+    MPE_LOG_INFO("steam matchmaking hooks registered for user {}", local);
     return hooks;
 }
 
@@ -110,7 +110,7 @@ Result SteamMatchmakingHooks::Create(LobbyVisibility visibility, std::uint32_t m
     lobby_created_call_.Set(call, this, &SteamMatchmakingHooks::OnLobbyCreatedResult);
     operation_in_flight_ = true;
 
-    FE_LOG_INFO("creating {} lobby for up to {} member(s)", ToString(visibility), max_members);
+    MPE_LOG_INFO("creating {} lobby for up to {} member(s)", ToString(visibility), max_members);
     return Result::Success();
 }
 
@@ -134,14 +134,14 @@ Result SteamMatchmakingHooks::Join(LobbyId lobby) {
     }
     operation_in_flight_ = true;
 
-    FE_LOG_INFO("joining lobby {}", lobby);
+    MPE_LOG_INFO("joining lobby {}", lobby);
     return Result::Success();
 }
 
 void SteamMatchmakingHooks::Leave() {
     if (current_lobby_ != 0) {
         steam::LeaveLobby(current_lobby_);
-        FE_LOG_INFO("left lobby {}", current_lobby_);
+        MPE_LOG_INFO("left lobby {}", current_lobby_);
     }
     current_lobby_       = 0;
     is_owner_            = false;
@@ -287,7 +287,7 @@ Result SteamMatchmakingHooks::SetVisibility(LobbyVisibility visibility) {
     if (!steam::SetLobbyType(current_lobby_, TranslateVisibility(visibility))) {
         return Result::Fail(ErrorCode::SteamCallFailed, "SetLobbyType was rejected");
     }
-    FE_LOG_INFO("lobby visibility set to {}", ToString(visibility));
+    MPE_LOG_INFO("lobby visibility set to {}", ToString(visibility));
     return Result::Success();
 }
 
@@ -300,7 +300,7 @@ Result SteamMatchmakingHooks::OpenInviteOverlay() {
         return Result::Fail(ErrorCode::InvalidState, "not in a lobby");
     }
     steam::ActivateGameOverlayInviteDialog(current_lobby_);
-    FE_LOG_INFO("opened the Steam invite overlay for lobby {}", current_lobby_);
+    MPE_LOG_INFO("opened the Steam invite overlay for lobby {}", current_lobby_);
     return Result::Success();
 }
 
@@ -320,7 +320,7 @@ Result SteamMatchmakingHooks::PublishJoinablePresence(std::string_view status_te
 
     const std::string status(status_text);
     if (!status.empty() && !steam::SetRichPresence("status", status.c_str())) {
-        FE_LOG_WARN("SetRichPresence('status') was rejected; presence text will be absent");
+        MPE_LOG_WARN("SetRichPresence('status') was rejected; presence text will be absent");
     }
     return Result::Success();
 }
@@ -382,7 +382,7 @@ void SteamMatchmakingHooks::Dispatch(const Event& event, ILobbyBackendObserver& 
                 // The lobby exists but is not describable, so nobody could join it
                 // correctly. Report it as a creation failure and release the lobby.
                 const Error error = published.error();
-                FE_LOG_ERROR("publishing join metadata failed: {}", error.message);
+                MPE_LOG_ERROR("publishing join metadata failed: {}", error.message);
                 Leave();
                 observer.OnLobbyCreateFailed(error);
                 return;
@@ -454,11 +454,11 @@ void SteamMatchmakingHooks::RefreshOwnership() {
 }
 
 Result SteamMatchmakingHooks::PublishJoinMetadata() {
-    FE_ASSIGN_OR_RETURN(const PlatformId local_id, LocalId());
+    MPE_ASSIGN_OR_RETURN(const PlatformId local_id, LocalId());
 
-    FE_TRY(SetLobbyData(keys::kProtocolVersion, std::to_string(net::kProtocolVersion)));
-    FE_TRY(SetLobbyData(keys::kGameBuild, GameBuildString()));
-    FE_TRY(SetLobbyData(keys::kHostId, std::to_string(local_id)));
+    MPE_TRY(SetLobbyData(keys::kProtocolVersion, std::to_string(net::kProtocolVersion)));
+    MPE_TRY(SetLobbyData(keys::kGameBuild, GameBuildString()));
+    MPE_TRY(SetLobbyData(keys::kHostId, std::to_string(local_id)));
     return Result::Success();
 }
 
@@ -574,31 +574,31 @@ void SteamMatchmakingHooks::OnRichPresenceJoinRequested(
 
     constexpr std::string_view kPrefix = "+fe_lobby ";
     if (!connect.starts_with(kPrefix)) {
-        FE_LOG_WARN("ignoring a rich presence join with an unrecognized connect string");
+        MPE_LOG_WARN("ignoring a rich presence join with an unrecognized connect string");
         return;
     }
 
     const std::string_view id_text = connect.substr(kPrefix.size());
     if (id_text.empty()) {
-        FE_LOG_WARN("ignoring a rich presence join with no lobby id");
+        MPE_LOG_WARN("ignoring a rich presence join with no lobby id");
         return;
     }
 
     LobbyId lobby = 0;
     for (const char c : id_text) {
         if (c < '0' || c > '9') {
-            FE_LOG_WARN("ignoring a rich presence join with a non numeric lobby id");
+            MPE_LOG_WARN("ignoring a rich presence join with a non numeric lobby id");
             return;
         }
         // Overflow guard: a value that would wrap is malformed.
         if (lobby > (UINT64_MAX - static_cast<std::uint64_t>(c - '0')) / 10u) {
-            FE_LOG_WARN("ignoring a rich presence join with an out of range lobby id");
+            MPE_LOG_WARN("ignoring a rich presence join with an out of range lobby id");
             return;
         }
         lobby = lobby * 10u + static_cast<std::uint64_t>(c - '0');
     }
     if (lobby == 0) {
-        FE_LOG_WARN("ignoring a rich presence join with a zero lobby id");
+        MPE_LOG_WARN("ignoring a rich presence join with a zero lobby id");
         return;
     }
 
@@ -619,4 +619,4 @@ std::string_view ToString(LobbyVisibility visibility) noexcept {
     return "unknown";
 }
 
-} // namespace fe::lobby
+} // namespace mpe::lobby

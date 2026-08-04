@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/GameBuild.cpp
-#define FE_LOG_CATEGORY "Core.Build"
+// MultiplayerEvolved: Core/GameBuild.cpp
+#define MPE_LOG_CATEGORY "Core.Build"
 
 #include "Core/GameBuild.h"
 
@@ -15,7 +15,7 @@
 // The game already imports VERSION.dll, so linking it adds no new dependency.
 #pragma comment(lib, "Version.lib")
 
-namespace fe {
+namespace mpe {
 namespace {
 
 /// Full path of the running executable.
@@ -115,9 +115,9 @@ const std::string& GameBuildString() {
         std::string        build = ReadFileVersionString(path);
         if (build.empty()) {
             build = SyntheticBuildString(path);
-            FE_LOG_WARN("could not read the executable version resource; using '{}'", build);
+            MPE_LOG_WARN("could not read the executable version resource; using '{}'", build);
         } else {
-            FE_LOG_INFO("game build is '{}'", build);
+            MPE_LOG_INFO("game build is '{}'", build);
         }
         return build;
     }();
@@ -141,4 +141,4 @@ const std::string& ExecutableDirectory() {
     return value;
 }
 
-} // namespace fe
+} // namespace mpe

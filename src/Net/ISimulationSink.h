@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/ISimulationSink.h
+// MultiplayerEvolved: Net/ISimulationSink.h
 //
 // Delivery point for tunnelled engine datagrams.
 //
 // The engine already owns a complete replication layer: object interpolation,
 // per object simulation priority, per peer stream bandwidth, and its own session
 // state machine. Reimplementing any of that would be strictly worse than what
-// ships in the binary. So ForgeEvolved carries the engine's datagrams instead of
+// ships in the binary. So MultiplayerEvolved carries the engine's datagrams instead of
 // replacing them, and this interface is where a received datagram crosses back
 // into the engine.
 //
@@ -22,7 +22,7 @@
 #include "Core/Result.h"
 #include "Net/IPeerTransport.h"
 
-namespace fe::net {
+namespace mpe::net {
 
 class ISimulationSink {
 public:
@@ -42,4 +42,4 @@ public:
                                                 std::span<const std::byte> datagram) = 0;
 };
 
-} // namespace fe::net
+} // namespace mpe::net

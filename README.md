@@ -40,8 +40,8 @@ Both you and whoever you play with need the mod. It takes about thirty seconds.
 | | |
 | --- | --- |
 | `version.dll` | |
-| `ForgeEvolved.dll` | |
-| `ForgeEvolved/` | the folder |
+| `MultiplayerEvolved.dll` | |
+| `MultiplayerEvolved/` | the folder |
 
 into
 
@@ -64,12 +64,12 @@ game starts, downloads it quietly in the background, and installs it the next ti
 you launch. The lobby shows you what it is doing in the top right corner.
 
 If an update ever goes wrong, the previous version is kept next to it as
-`ForgeEvolved.dll.backup`, so nothing is lost.
+`MultiplayerEvolved.dll.backup`, so nothing is lost.
 
 ### Is this safe for my game?
 
 It never modifies your game files. If anything it needs is missing it simply does
-nothing and writes the reason to `ForgeEvolved.log`. It cannot half-work and leave
+nothing and writes the reason to `MultiplayerEvolved.log`. It cannot half-work and leave
 you with a broken install.
 
 ---
@@ -122,7 +122,7 @@ What works today, honestly. Anything not yet tested says so.
 ## Problems, questions, ideas
 
 Use **[GitHub Issues](https://github.com/k3sra/halo-multiplayer-evolved/issues)**.
-Please include your `ForgeEvolved.log`, which sits in the same folder you installed
+Please include your `MultiplayerEvolved.log`, which sits in the same folder you installed
 into. It says what went wrong and it saves a lot of guessing.
 
 ---

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/DebugGlobals.cpp
-#define FE_LOG_CATEGORY "Blam.Globals"
+// MultiplayerEvolved: Blam/DebugGlobals.cpp
+#define MPE_LOG_CATEGORY "Blam.Globals"
 
 #include "Blam/DebugGlobals.h"
 
@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <format>
 
-namespace fe::blam {
+namespace mpe::blam {
 
 std::string_view ToString(GlobalType type) noexcept {
     switch (type) {
@@ -63,7 +63,7 @@ Expected<GlobalInfo> DebugGlobals::Query(std::string_view name) const {
 }
 
 Expected<bool> DebugGlobals::GetBool(std::string_view name) const {
-    FE_ASSIGN_OR_RETURN(const GlobalInfo info, Query(name));
+    MPE_ASSIGN_OR_RETURN(const GlobalInfo info, Query(name));
     if (!info.writable) {
         return Error{ErrorCode::InvalidState, std::format("'{}' is a string id", name)};
     }
@@ -75,7 +75,7 @@ Expected<bool> DebugGlobals::GetBool(std::string_view name) const {
 }
 
 Expected<std::uint64_t> DebugGlobals::GetNumber(std::string_view name) const {
-    FE_ASSIGN_OR_RETURN(const GlobalInfo info, Query(name));
+    MPE_ASSIGN_OR_RETURN(const GlobalInfo info, Query(name));
     if (!info.writable) {
         return Error{ErrorCode::InvalidState, std::format("'{}' is a string id", name)};
     }
@@ -107,13 +107,13 @@ Result DebugGlobals::StoreValue(std::uintptr_t address, std::uint64_t value) {
         // The store succeeded, so this is not a failure of the operation. Logged
         // because leaving a page more permissive than the engine expects is worth
         // knowing about.
-        FE_LOG_WARN("could not restore page protection on 0x{:X}", address);
+        MPE_LOG_WARN("could not restore page protection on 0x{:X}", address);
     }
     return Result::Success();
 }
 
 Result DebugGlobals::SetBool(std::string_view name, bool value) {
-    FE_ASSIGN_OR_RETURN(const SymbolRecord* record, ResolveWritable(name));
+    MPE_ASSIGN_OR_RETURN(const SymbolRecord* record, ResolveWritable(name));
 
     const std::uint64_t type =
         *reinterpret_cast<const std::uint64_t*>(record->record_address + kTypeOffset);
@@ -124,14 +124,14 @@ Result DebugGlobals::SetBool(std::string_view name, bool value) {
     }
 
     const std::uintptr_t address = record->record_address + kValueOffset;
-    FE_TRY(StoreValue(address, value ? 1u : 0u));
+    MPE_TRY(StoreValue(address, value ? 1u : 0u));
 
-    FE_LOG_INFO("set {} = {}", record->name, value ? 1 : 0);
+    MPE_LOG_INFO("set {} = {}", record->name, value ? 1 : 0);
     return Result::Success();
 }
 
 Result DebugGlobals::SetNumber(std::string_view name, std::uint64_t value) {
-    FE_ASSIGN_OR_RETURN(const SymbolRecord* record, ResolveWritable(name));
+    MPE_ASSIGN_OR_RETURN(const SymbolRecord* record, ResolveWritable(name));
 
     const std::uint64_t type =
         *reinterpret_cast<const std::uint64_t*>(record->record_address + kTypeOffset);
@@ -147,9 +147,9 @@ Result DebugGlobals::SetNumber(std::string_view name, std::uint64_t value) {
     }
 
     const std::uintptr_t address = record->record_address + kValueOffset;
-    FE_TRY(StoreValue(address, value));
+    MPE_TRY(StoreValue(address, value));
 
-    FE_LOG_INFO("set {} = 0x{:X}", record->name, value);
+    MPE_LOG_INFO("set {} = 0x{:X}", record->name, value);
     return Result::Success();
 }
 
@@ -177,7 +177,7 @@ std::vector<GlobalInfo> DebugGlobals::List(std::string_view name_contains,
 }
 
 Result DebugGlobals::VerifyWritePath(std::string_view name) {
-    FE_ASSIGN_OR_RETURN(const GlobalInfo before, Query(name));
+    MPE_ASSIGN_OR_RETURN(const GlobalInfo before, Query(name));
     if (!before.writable) {
         return Result::Fail(ErrorCode::InvalidState,
                             std::format("'{}' is not writable, so it cannot verify the path",
@@ -192,7 +192,7 @@ Result DebugGlobals::VerifyWritePath(std::string_view name) {
     // Flip it, read it back, then restore. Reading back through a separate Query
     // rather than trusting the store is the entire point of the test.
     const std::uint64_t probe = (before.value == 0) ? 1u : 0u;
-    FE_TRY(StoreValue(before.address, probe));
+    MPE_TRY(StoreValue(before.address, probe));
 
     Expected<GlobalInfo> after = Query(name);
     const bool           stuck = after.ok() && after.value().value == probe;
@@ -200,7 +200,7 @@ Result DebugGlobals::VerifyWritePath(std::string_view name) {
     // Restore regardless of outcome, so a failed test leaves no trace.
     const Result restored = StoreValue(before.address, before.value);
     if (!restored.ok()) {
-        FE_LOG_ERROR("could not restore '{}' to its original value", name);
+        MPE_LOG_ERROR("could not restore '{}' to its original value", name);
         return restored;
     }
 
@@ -211,9 +211,9 @@ Result DebugGlobals::VerifyWritePath(std::string_view name) {
                                         after.ok() ? after.value().value : 0));
     }
 
-    FE_LOG_INFO("write path verified on '{}' at 0x{:X} (wrote {}, read back {}, restored {})",
+    MPE_LOG_INFO("write path verified on '{}' at 0x{:X} (wrote {}, read back {}, restored {})",
                 name, before.address, probe, probe, before.value);
     return Result::Success();
 }
 
-} // namespace fe::blam
+} // namespace mpe::blam

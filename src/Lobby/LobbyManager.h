@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Lobby/LobbyManager.h
+// MultiplayerEvolved: Lobby/LobbyManager.h
 //
 // The lobby state machine: one owner for the entire path from a player pressing
 // Multiplayer to every peer standing in the same match.
@@ -65,7 +65,7 @@
 #include "Net/ISimulationSink.h"
 #include "Net/PacketProtocol.h"
 
-namespace fe::lobby {
+namespace mpe::lobby {
 
 /// Externally visible phase. Drives the UI and is published as lobby metadata so
 /// a prospective joiner can see that a match is already underway.
@@ -367,4 +367,4 @@ private:
     net::ISimulationSink* simulation_sink_{nullptr};
 };
 
-} // namespace fe::lobby
+} // namespace mpe::lobby

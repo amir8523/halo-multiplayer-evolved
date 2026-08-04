@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Engine/InertEngineControl.h
+// MultiplayerEvolved: Engine/InertEngineControl.h
 //
 // Fail closed IEngineControl for a game build whose engine binding has not been
 // resolved.
@@ -25,7 +25,7 @@
 
 #include "Engine/IEngineControl.h"
 
-namespace fe::engine {
+namespace mpe::engine {
 
 class InertEngineControl final : public IEngineControl {
 public:
@@ -79,4 +79,4 @@ private:
     std::string reason_;
 };
 
-} // namespace fe::engine
+} // namespace mpe::engine

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/GameThread.cpp
-#define FE_LOG_CATEGORY "Unreal.GameThread"
+// MultiplayerEvolved: Unreal/GameThread.cpp
+#define MPE_LOG_CATEGORY "Unreal.GameThread"
 
 #include "Unreal/GameThread.h"
 
@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-namespace fe::unreal {
+namespace mpe::unreal {
 namespace {
 
 /// ProcessEvent is a substantial function. Anything far outside this range is something
@@ -267,7 +267,7 @@ Result DetectCallLayout(const ObjectArray& objects, CallLayout& out_layout) {
     g_detected                 = true;
     out_layout                 = g_layout;
 
-    FE_LOG_INFO("ProcessEvent detected in slot {} at 0x{:X} (RVA 0x{:X}, {} bytes), shared "
+    MPE_LOG_INFO("ProcessEvent detected in slot {} at 0x{:X} (RVA 0x{:X}, {} bytes), shared "
                 "across {} unrelated class(es)",
                 best_slot, best_address, g_layout.process_event_rva, best_size,
                 samples.size());
@@ -449,16 +449,16 @@ struct FStringLayout {
     });
 
     if (gameplay != 0) {
-        FE_LOG_INFO("using gameplay player controller {} at 0x{:X}", gameplay_class,
+        MPE_LOG_INFO("using gameplay player controller {} at 0x{:X}", gameplay_class,
                     gameplay);
         return gameplay;
     }
     if (frontend != 0 && allow_frontend) {
-        FE_LOG_INFO("using frontend controller {} at 0x{:X}", frontend_class, frontend);
+        MPE_LOG_INFO("using frontend controller {} at 0x{:X}", frontend_class, frontend);
         return frontend;
     }
     if (frontend != 0) {
-        FE_LOG_WARN("only the frontend controller {} at 0x{:X} exists, which means no world "
+        MPE_LOG_WARN("only the frontend controller {} at 0x{:X} exists, which means no world "
                     "is loaded; travelling from here is what crashes",
                     frontend_class, frontend);
     }
@@ -504,13 +504,13 @@ Result Travel(const ObjectArray& objects, std::string_view url, std::uint8_t tra
     parameters.travel_type  = travel_type;
     parameters.seamless     = 0;
 
-    FE_LOG_INFO("travelling to '{}' (type {}) via controller 0x{:X}", url, travel_type,
+    MPE_LOG_INFO("travelling to '{}' (type {}) via controller 0x{:X}", url, travel_type,
                 controller);
     const Result called = CallFunction(controller, function, &parameters);
     if (!called.ok()) {
         return called;
     }
-    FE_LOG_INFO("ClientTravel returned");
+    MPE_LOG_INFO("ClientTravel returned");
     return Result::Success();
 }
 
@@ -589,7 +589,7 @@ Result ShowWidget(const ObjectArray& objects, std::string_view widget_class,
     create_parameters.widget_type   = widget_type;
     create_parameters.owning_player = controller;
 
-    FE_LOG_INFO("creating widget '{}' (class 0x{:X}) for controller 0x{:X}", widget_class,
+    MPE_LOG_INFO("creating widget '{}' (class 0x{:X}) for controller 0x{:X}", widget_class,
                 widget_type, controller);
     if (const Result called = CallFunction(library, create, &create_parameters);
         !called.ok()) {
@@ -617,7 +617,7 @@ Result ShowWidget(const ObjectArray& objects, std::string_view widget_class,
     }
 
     out_widget = create_parameters.return_value;
-    FE_LOG_INFO("widget '{}' created at 0x{:X} and added to the viewport", widget_class,
+    MPE_LOG_INFO("widget '{}' created at 0x{:X} and added to the viewport", widget_class,
                 out_widget);
     return Result::Success();
 }
@@ -817,7 +817,7 @@ Result InstallGameThreadPump(std::uintptr_t widget) {
 
     g_pump_original_vtable = table;
     g_pump_widget          = widget;
-    FE_LOG_INFO("game thread pump installed on widget 0x{:X}; jobs now run on the next "
+    MPE_LOG_INFO("game thread pump installed on widget 0x{:X}; jobs now run on the next "
                 "frame instead of behind a breakpoint",
                 widget);
     return Result::Success();
@@ -882,7 +882,7 @@ Result WatchWidgetEvents(std::uintptr_t widget) {
 
     g_original_vtable = table;
     g_watched_widget  = widget;
-    FE_LOG_INFO("watching events on widget 0x{:X} (vtable 0x{:X} -> copy 0x{:X}, slot {})",
+    MPE_LOG_INFO("watching events on widget 0x{:X} (vtable 0x{:X} -> copy 0x{:X}, slot {})",
                 widget, table, copy_address, slot);
     return Result::Success();
 }
@@ -1176,7 +1176,7 @@ Result BuildMenuRows(const MenuButtonPlan& plan, const std::vector<MenuRow>& row
         out_buttons.push_back(button);
     }
 
-    FE_LOG_INFO("built a {} row lobby in container 0x{:X}", out_buttons.size(),
+    MPE_LOG_INFO("built a {} row lobby in container 0x{:X}", out_buttons.size(),
                 plan.container);
     return Result::Success();
 }
@@ -1213,7 +1213,7 @@ Result BuildMenuList(const MenuButtonPlan& plan, const std::vector<std::string>&
         out_buttons.push_back(button);
     }
 
-    FE_LOG_INFO("built a {} entry list in container 0x{:X}", out_buttons.size(),
+    MPE_LOG_INFO("built a {} entry list in container 0x{:X}", out_buttons.size(),
                 plan.container);
     return Result::Success();
 }
@@ -1393,13 +1393,13 @@ Result AddMainMenuButton(const ObjectArray& objects, std::string_view label,
             if (CallFunction(text_library, convert, &convert_parameters).ok()) {
                 if (memory::GuardedWrite(button + kLabelOffset, convert_parameters.result,
                                          kTextSize)) {
-                    FE_LOG_INFO("button label set to '{}'", label);
+                    MPE_LOG_INFO("button label set to '{}'", label);
                 } else {
-                    FE_LOG_WARN("could not write the button label");
+                    MPE_LOG_WARN("could not write the button label");
                 }
             }
         } else {
-            FE_LOG_WARN("Default__KismetTextLibrary not found; button will be unlabelled");
+            MPE_LOG_WARN("Default__KismetTextLibrary not found; button will be unlabelled");
         }
     }
 
@@ -1461,13 +1461,13 @@ Result AddMainMenuButton(const ObjectArray& objects, std::string_view label,
                 ++moved;
             }
         }
-        FE_LOG_INFO("rotated {} existing entries below '{}'", moved, label);
+        MPE_LOG_INFO("rotated {} existing entries below '{}'", moved, label);
     } else {
-        FE_LOG_WARN("RemoveChild not found; '{}' stays at the bottom of the menu", label);
+        MPE_LOG_WARN("RemoveChild not found; '{}' stays at the bottom of the menu", label);
     }
 
     out_button = button;
-    FE_LOG_INFO("'{}' button 0x{:X} added to the main menu container 0x{:X}", label, button,
+    MPE_LOG_INFO("'{}' button 0x{:X} added to the main menu container 0x{:X}", label, button,
                 container);
     return Result::Success();
 }
@@ -1495,7 +1495,7 @@ Result CallSimple(const ObjectArray& objects, std::string_view class_name,
         return Result::Fail(ErrorCode::InvalidState,
                             std::format("{} was not found", function_name));
     }
-    FE_LOG_INFO("calling {}::{} on 0x{:X}", class_name, function_name, instance);
+    MPE_LOG_INFO("calling {}::{} on 0x{:X}", class_name, function_name, instance);
     return CallFunction(instance, function, nullptr);
 }
 
@@ -1520,7 +1520,7 @@ Result CallReturningInt(const ObjectArray& objects, std::string_view class_name,
         return called;
     }
     out_value = parameters.return_value;
-    FE_LOG_INFO("{}::{} returned {}", class_name, function_name, out_value);
+    MPE_LOG_INFO("{}::{} returned {}", class_name, function_name, out_value);
     return Result::Success();
 }
 
@@ -1624,9 +1624,9 @@ Result BeginCampaign(const ObjectArray& objects, const Reflection& reflection,
 
     if (source != 0 && memory::GuardedRead(source, parameters.options,
                                            sizeof(parameters.options))) {
-        FE_LOG_INFO("options copied from a live save record at 0x{:X}", source);
+        MPE_LOG_INFO("options copied from a live save record at 0x{:X}", source);
     } else {
-        FE_LOG_WARN("no live save options found; sending a zeroed options struct, which the "
+        MPE_LOG_WARN("no live save options found; sending a zeroed options struct, which the "
                     "engine may reject");
     }
 
@@ -1639,14 +1639,14 @@ Result BeginCampaign(const ObjectArray& objects, const Reflection& reflection,
         parameters.options[0x18] = static_cast<std::uint8_t>(difficulty);
     }
 
-    FE_LOG_INFO("SetAndBeginCampaign(campaign '{}' 0x{:X}, scenario '{}', friendly fire {}, "
+    MPE_LOG_INFO("SetAndBeginCampaign(campaign '{}' 0x{:X}, scenario '{}', friendly fire {}, "
                 "difficulty {}) on subsystem 0x{:X}",
                 campaign_asset, campaign, scenario, friendly_fire ? "on" : "off",
                 difficulty < 0 ? -1 : difficulty, subsystem);
     if (const Result called = CallFunction(subsystem, function, &parameters); !called.ok()) {
         return called;
     }
-    FE_LOG_INFO("SetAndBeginCampaign returned {}",
+    MPE_LOG_INFO("SetAndBeginCampaign returned {}",
                 parameters.return_value ? "true" : "false");
 
     if (!parameters.return_value) {
@@ -1713,13 +1713,13 @@ Result ExecuteConsoleCommand(const ObjectArray& objects, std::string_view comman
     parameters.command.capacity = parameters.command.count;
     parameters.write_to_log     = true;
 
-    FE_LOG_INFO("executing console command: {}", command);
+    MPE_LOG_INFO("executing console command: {}", command);
     const Result called = CallFunction(controller, function, &parameters);
     if (!called.ok()) {
         return called;
     }
-    FE_LOG_INFO("console command returned");
+    MPE_LOG_INFO("console command returned");
     return Result::Success();
 }
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

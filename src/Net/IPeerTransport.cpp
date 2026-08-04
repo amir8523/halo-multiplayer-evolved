@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/IPeerTransport.cpp
+// MultiplayerEvolved: Net/IPeerTransport.cpp
 //
 // Enum names for the transport vocabulary. Kept in its own translation unit so
 // the interface header stays free of definitions.
 #include "Net/IPeerTransport.h"
 
-namespace fe::net {
+namespace mpe::net {
 
 std::string_view ToString(Channel channel) noexcept {
     switch (channel) {
@@ -32,4 +32,4 @@ std::string_view ToString(DisconnectReason reason) noexcept {
     return "unknown";
 }
 
-} // namespace fe::net
+} // namespace mpe::net

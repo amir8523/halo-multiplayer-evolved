@@ -1,5 +1,5 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Steam/SteamApi.h
+// MultiplayerEvolved: Steam/SteamApi.h
 //
 // Dynamic binding to the steam_api64.dll the game already ships.
 //
@@ -37,7 +37,7 @@
 
 #include "Steam/SteamTypes.h"
 
-namespace fe::steam {
+namespace mpe::steam {
 
 // ---------------------------------------------------------------------------
 // Callback ABI
@@ -362,6 +362,6 @@ void SendMessages(int message_count, SteamNetworkingMessage* const* messages,
                                                  SteamNetConnectionRealTimeStatus* out_status,
                                                  int lane_count, void* out_lanes);
 
-} // namespace fe::steam
+} // namespace mpe::steam
 
 

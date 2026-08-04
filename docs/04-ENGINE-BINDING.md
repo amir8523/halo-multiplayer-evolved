@@ -21,7 +21,7 @@ it.
 
 ## Verified in the live game
 
-Confirmed from `ForgeEvolved.log` with the mod loaded into a running
+Confirmed from `MultiplayerEvolved.log` with the mod loaded into a running
 `HaloCampaignEvolved.exe`:
 
 ```
@@ -33,7 +33,7 @@ steam binding: user='SteamUser023' friends='SteamFriends018'
                net_utils='SteamNetworkingUtils004' networking_ready=true
 steam matchmaking hooks registered for user <id>
 steam transport ready (virtual port 22701, relay warm up requested)
-ForgeEvolved ready
+MultiplayerEvolved ready
 ```
 
 Discovery against the relocated live image produced results identical to the offline
@@ -169,7 +169,7 @@ Two conclusions follow:
    descriptors are present, nothing references them, `levels\multi\` is an empty
    search path, and no friendly fire rule exists.
 
-`FE_SetGlobal` is retained because reading and writing that memory is exactly what it
+`MPE_SetGlobal` is retained because reading and writing that memory is exactly what it
 says it does, and because it is the tool a contributor would use to test this further.
 It is no longer described as a way to enable cheats or change gameplay.
 

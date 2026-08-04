@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/PacketProtocol.h
+// MultiplayerEvolved: Net/PacketProtocol.h
 //
 // Wire protocol for lobby control, map distribution and simulation tunnelling.
 //
@@ -34,9 +34,9 @@
 #include "Core/Result.h"
 #include "Net/IPeerTransport.h"
 
-namespace fe::net {
+namespace mpe::net {
 
-/// Identifies a ForgeEvolved packet. Guards against a stray datagram from an
+/// Identifies a MultiplayerEvolved packet. Guards against a stray datagram from an
 /// unrelated application on the same relay socket being parsed as lobby traffic.
 inline constexpr std::uint16_t kPacketMagic = 0xFE07u;
 
@@ -80,7 +80,7 @@ enum class MessageType : std::uint16_t {
     MapTransferDone   = 43, ///< Client to host: full payload verified.
 
     // --- Simulation tunnel (Channel::Simulation) --------------------------
-    /// Opaque engine datagram. ForgeEvolved does not interpret the body; it
+    /// Opaque engine datagram. MultiplayerEvolved does not interpret the body; it
     /// carries the engine's own session and simulation traffic over Steam so the
     /// shipped replication, interpolation and priority systems work unchanged.
     SimulationDatagram = 60,
@@ -167,7 +167,7 @@ struct DecodedPacket {
 
 /// Client to host, opening a connection.
 struct HandshakeRequestBody {
-    std::uint32_t mod_version{0};      ///< ForgeEvolved build, informational.
+    std::uint32_t mod_version{0};      ///< MultiplayerEvolved build, informational.
     std::string   game_build;          ///< Must match the host exactly.
     std::string   display_name;        ///< Steam persona, trimmed.
     std::uint64_t platform_id{0};      ///< Claimed identity, cross checked by
@@ -306,4 +306,4 @@ struct ChatMessageBody {
     [[nodiscard]] static Expected<ChatMessageBody> Read(ByteReader& reader);
 };
 
-} // namespace fe::net
+} // namespace mpe::net
