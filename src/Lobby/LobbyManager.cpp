@@ -170,14 +170,16 @@ Result LobbyManager::HostSession(const HostOptions& options) {
                             std::format("cannot host while {}", ToString(phase_)));
     }
 
-    // Capability gate first: refusing here costs the player nothing, whereas
-    // discovering it mid launch strands a full lobby.
-    const engine::EngineCapabilities capabilities = engine_.Capabilities();
-    if (!capabilities.SufficientToHost()) {
-        return Result::Fail(ErrorCode::InvalidState,
-                            std::format("this game build cannot be hosted yet: {}",
-                                        capabilities.Describe()));
-    }
+    // No capability gate here.
+    //
+    // Hosting a platform lobby is gathering people: a Steam lobby, a roster, invites and
+    // chat. None of that touches the engine. What needs the engine is launching the match,
+    // and that is where the gate now lives, so a build that cannot yet start a match can
+    // still be used to get everybody into a lobby and ready.
+    //
+    // Refusing here instead meant the session never existed at all, which showed up as a
+    // status line reading OFFLINE and slot buttons that opened no invite, because there was
+    // nothing to invite anyone to.
     MPE_TRY(options.settings.Validate());
 
     if (options.max_players < 2 || options.max_players > 16) {
@@ -490,6 +492,17 @@ Result LobbyManager::StartCountdown() {
         return Result::Fail(ErrorCode::InvalidState, "at least one other player is required");
     }
     MPE_TRY(settings_.Validate());
+
+    // Capability gate, moved here from HostSession. This is the point where a missing
+    // engine binding actually costs something: a lobby full of people whose match cannot
+    // start. Refusing before the countdown begins is cheap; discovering it mid launch is
+    // not.
+    const engine::EngineCapabilities capabilities = engine_.Capabilities();
+    if (!capabilities.SufficientToHost()) {
+        return Result::Fail(ErrorCode::InvalidState,
+                            std::format("this game build cannot start a match yet: {}",
+                                        capabilities.Describe()));
+    }
 
     // Everyone must be ready and hold the map. Reported specifically so the host
     // knows who to wait for instead of seeing a generic refusal.
