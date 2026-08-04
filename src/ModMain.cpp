@@ -263,6 +263,12 @@ constexpr const char* kModVersion = "0.1.0";
 /// starts.
 std::mutex  g_version_mutex;
 std::string g_latest_version;
+/// Percentage while a download is running, or -1 when none is.
+int  g_update_progress = -1;
+/// True once a new build is staged and waiting for the next start.
+bool g_update_ready = false;
+/// Where the game's binaries live, which is where the staged update has to land.
+std::wstring g_binaries_directory;
 
 /// Where releases are published. A mod that talks to other players is only useful when
 /// everyone agrees on the protocol, so an out of date copy is worth saying out loud.
@@ -281,13 +287,32 @@ void StartUpdateCheck() {
             FE_LOG_INFO("update check skipped: {}", release.message());
             return;
         }
-        std::lock_guard lock(g_version_mutex);
-        g_latest_version = release.value().version;
-        if (update::IsNewer(g_latest_version, kModVersion)) {
-            FE_LOG_INFO("an update is available: {} (this build is {})", g_latest_version,
-                        kModVersion);
-        } else {
+
+        {
+            std::lock_guard lock(g_version_mutex);
+            g_latest_version = release.value().version;
+        }
+        if (!update::IsNewer(release.value().version, kModVersion)) {
             FE_LOG_INFO("this build is current ({})", kModVersion);
+            return;
+        }
+        FE_LOG_INFO("an update is available: {} (this build is {})", release.value().version,
+                    kModVersion);
+
+        // Fetched now and applied at the next start, because the running DLL cannot replace
+        // itself while it is mapped. The player sees the progress on the lobby's status
+        // line and never has to visit a website.
+        const Result downloaded = update::DownloadRelease(
+            release.value(), g_binaries_directory, [](long long done, long long total) {
+                std::lock_guard lock(g_version_mutex);
+                g_update_progress = total > 0 ? static_cast<int>(done * 100 / total) : -1;
+            });
+
+        std::lock_guard lock(g_version_mutex);
+        g_update_progress = -1;
+        g_update_ready    = downloaded.ok();
+        if (!downloaded.ok()) {
+            FE_LOG_WARN("the update could not be downloaded: {}", downloaded.message());
         }
     }).detach();
 }
@@ -1360,14 +1385,25 @@ void RefreshLobbyStatus() {
     }
 
     std::string latest;
+    int         progress = -1;
+    bool        staged   = false;
     {
         std::lock_guard lock(g_version_mutex);
-        latest = g_latest_version;
+        latest   = g_latest_version;
+        progress = g_update_progress;
+        staged   = g_update_ready;
     }
-    status.update_available = !latest.empty() && update::IsNewer(latest, kModVersion);
-    status.version = status.update_available
-                         ? std::format("v{}  UPDATE {} READY", kModVersion, latest)
-                         : std::format("v{}  UP TO DATE", kModVersion);
+    const bool behind = !latest.empty() && update::IsNewer(latest, kModVersion);
+    status.update_available = behind;
+    if (staged) {
+        status.version = std::format("v{}  UPDATE {} READY  RESTART", kModVersion, latest);
+    } else if (progress >= 0) {
+        status.version = std::format("v{}  DOWNLOADING {}%", kModVersion, progress);
+    } else if (behind) {
+        status.version = std::format("v{}  UPDATE {} FOUND", kModVersion, latest);
+    } else {
+        status.version = std::format("v{}  UP TO DATE", kModVersion);
+    }
 
     unreal::LobbyUIContext ui = g_lobby_ui;
     if (!unreal::BindLobbyMenu(g_live_menu, ui).ok()) {
@@ -2620,8 +2656,12 @@ void Initialize() {
     FE_LOG_INFO("ForgeEvolved ready ({})",
                 network_failure.empty() ? "lobby available" : "lobby unavailable");
 
-    // Asked once, in the background. The answer is only used to tell the player their copy
-    // is behind, so nothing waits on it.
+    // Asked once, in the background, and applied at the next start. Nothing waits on it.
+    {
+        std::lock_guard lock(g_version_mutex);
+        // Trailing separator, because the staged file is written next to the mod itself.
+        g_binaries_directory = (std::filesystem::path(ExecutableDirectory()) / L"").wstring();
+    }
     StartUpdateCheck();
 
     // Engine binding last. Waiting for the module is lock free; only the commit takes
