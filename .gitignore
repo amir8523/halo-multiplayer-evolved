@@ -1,0 +1,19 @@
+# Build output. Everything here is reproducible from source with build.bat.
+build/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+
+# Local logs and scratch files.
+*.log
+build_clean.txt
+
+# Editor and OS noise.
+.vs/
+.vscode/
+*.user
+Thumbs.db
+desktop.ini

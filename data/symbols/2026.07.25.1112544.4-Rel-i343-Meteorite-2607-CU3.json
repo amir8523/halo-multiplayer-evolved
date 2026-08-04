@@ -1,0 +1,121 @@
+{
+  // ForgeEvolved symbol descriptor.
+  //
+  // Named after the game build string reported by the executable's version
+  // resource, so the mod picks the right descriptor automatically. Supporting a new
+  // game patch means adding a file here, not changing code.
+  //
+  // EVERYTHING BELOW IS MEASURED, NOT ASSUMED
+  //
+  // Produced by tools/probe/SymbolProbe.exe run against
+  // Meteorite/Binaries/Win64/HaloSimulation_tag_release.dll. The module maps at its
+  // preferred base 0x180000000, so the addresses in these comments are both the
+  // file's preferred addresses and the live ones.
+  //
+  // Three name tables were found and identified:
+  //
+  //   table 0  .rdata 0x1808303E8 .. 0x180838BB8  stride 0x10  2173 records
+  //            layout: { const char* name; uint32 id; uint32 category; }
+  //            String id table. Holds network_session_class_*,
+  //            network_session_privacy_* and forge_object_properties_*.
+  //            Example: network_session_class_system_link -> id 0x5A category 0x20.
+  //
+  //   table 1  .data  0x1809A35F8 .. 0x1809AA1B0  stride 0x18  1149 records
+  //            layout: { const char* name; uint64 type; uint64 value; }
+  //            Debug globals. Holds net_speculative_host_migration_disable
+  //            (type 5, value 0) alongside debug_projectiles, check_system_heap
+  //            and about 1100 others.
+  //
+  //   table 2  .data  0x1809A1738 .. 0x1809A35E0  stride 0x18  327 records
+  //            Same layout as table 1. Holds enable_console_window,
+  //            frontend_throttles_main_time, saved_film_* and similar.
+  //
+  // Type 5 with an inline zero value is the shape every boolean global in these
+  // tables has, and the value sits at +0x10. That is the read and write surface for
+  // engine debug globals.
+  //
+  // WHAT IS NOT HERE, AND WHY
+  //
+  // These strings exist in .rdata but no pointer to them exists in any validatable
+  // record array:
+  //
+  //   net_load_and_use_map_variant        0x1807FA7F8
+  //   net_build_map_variant               0x1807FA838
+  //   net_verify_map_variant              0x1807FA850
+  //   write_current_map_variant           0x1807FA818
+  //   read_map_variant_and_make_current   0x1807FA8B0
+  //   net_simulation_set_stream_bandwidth 0x1807FAF00
+  //   console_command                     0x180861A78
+  //
+  // They are debug commands registered by code at runtime, passing the literal as
+  // an argument, rather than described by a static table. Reaching them needs
+  // RIP relative cross reference analysis over .text to find each registration call
+  // site and the handler pointer passed with it. Until that is done they are listed
+  // as optional so their absence does not block the parts that do work.
+  //
+  // HOW TO SUPPORT A NEW BUILD
+  //
+  //   1. Copy this file, renaming it to the new build string. The build string is
+  //      logged on every startup as "game build: ...".
+  //   2. Run: build\SymbolProbe.exe "<game>\Meteorite\Binaries\Win64\HaloSimulation_tag_release.dll"
+  //   3. If required symbols resolve, nothing else is needed. If not, the probe
+  //      prints every table it found with strides and sample names; adjust
+  //      stride_candidates or name_offset to match and rerun.
+  //
+  "schema_version": 1,
+
+  "game_build": "2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3",
+  "module": "HaloSimulation_tag_release.dll",
+
+  // Verified resolvable on this build. All five live in table 0.
+  "required_symbols": [
+    "network_session_class_system_link",
+    "network_session_class_offline",
+    "network_session_privacy_open",
+    "network_session_privacy_friends_only",
+    "network_session_privacy_invitation_only"
+  ],
+
+  // Looked up and reported, never blocking. The five marked "resolved" below were
+  // confirmed present; the rest need cross reference analysis first.
+  "optional_symbols": [
+    "net_speculative_host_migration_disable",
+    "enable_console_window",
+    "forge_object_properties_team",
+    "forge_object_properties_spawn_time",
+    "forge_object_properties_physics",
+
+    "net_simulation_set_stream_bandwidth",
+    "net_load_and_use_map_variant",
+    "net_build_map_variant",
+    "net_verify_map_variant",
+    "write_current_map_variant",
+    "read_map_variant_and_make_current",
+    "console_command"
+  ],
+
+  "debug_table": {
+    // The name pointer is the first field in all three tables found.
+    "name_offset": 0,
+
+    // Measured strides are 0x10 and 0x18. The rest are kept as candidates so a
+    // future build with a wider record still resolves.
+    //
+    // Order matters and is handled in code: the smallest stride that validates is
+    // the real one, because a stride only validates when every slot at that spacing
+    // holds a name pointer. Preferring larger strides was tried and produced four
+    // overlapping copies of the same 0x10 table.
+    "stride_candidates": [8, 16, 24, 32, 40, 48, 56, 64],
+
+    // Consecutive valid records required before an array is accepted as a table.
+    // Four rejects coincidence while still recognizing a short command array.
+    "min_consecutive_records": 4,
+
+    // Guard rails. A malformed layout must fail fast rather than spin or allocate
+    // without bound. max_table_records is sized well above the largest measured
+    // table (2173 records).
+    "max_table_records": 262144,
+    "max_anchor_matches": 32,
+    "max_pointer_matches": 256
+  }
+}

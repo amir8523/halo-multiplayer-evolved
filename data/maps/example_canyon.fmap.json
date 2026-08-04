@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+
+  "name": "Example Canyon",
+  "description": "Reference layout demonstrating every element the parser accepts. Symmetric two base CTF and Slayer.",
+  "author_name": "ForgeEvolved",
+  "base_scenario": "levels/multiplayer/canyon/canyon",
+
+  "supported_modes": ["slayer", "team_slayer", "capture_the_flag", "king_of_the_hill"],
+
+  "objects": [
+    {
+      "id": 1,
+      "palette_key": "weapon.sniper_rifle",
+      "position": [0.0, 0.0, 12.5],
+      "yaw_degrees": 0.0,
+      "physics": "fixed",
+      "spawn_time_seconds": 120,
+      "respawn_count": -1
+    },
+    {
+      "id": 2,
+      "palette_key": "weapon.rocket_launcher",
+      "position": [0.0, 40.0, 4.0],
+      "yaw_degrees": 90.0,
+      "physics": "fixed",
+      "spawn_time_seconds": 180,
+      "respawn_count": -1
+    },
+    {
+      "id": 3,
+      "palette_key": "vehicle.warthog",
+      "position": [-52.0, -8.0, 2.0],
+      "yaw_degrees": 45.0,
+      "physics": "normal",
+      "team": 0,
+      "spawn_time_seconds": 90
+    },
+    {
+      "id": 4,
+      "palette_key": "vehicle.warthog",
+      "position": [52.0, 8.0, 2.0],
+      "yaw_degrees": 225.0,
+      "physics": "normal",
+      "team": 1,
+      "spawn_time_seconds": 90
+    },
+    {
+      "id": 5,
+      "palette_key": "equipment.overshield",
+      "position": [0.0, -40.0, 3.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0],
+      "physics": "phased",
+      "spawn_time_seconds": 150
+    },
+    {
+      "id": 6,
+      "palette_key": "scenery.crate_large",
+      "position": [-20.0, 0.0, 1.5],
+      "yaw_degrees": 0.0,
+      "physics": "fixed",
+      "scale": 1.0,
+      "spawn_at_start": true
+    },
+    {
+      "id": 7,
+      "palette_key": "scenery.crate_large",
+      "position": [20.0, 0.0, 1.5],
+      "yaw_degrees": 180.0,
+      "physics": "fixed",
+      "spawn_at_start": true
+    }
+  ],
+
+  "spawns": [
+    { "id": 100, "position": [-60.0, -4.0, 2.0], "yaw_degrees": 0.0,   "team": 0, "initial_only": true },
+    { "id": 101, "position": [-60.0,  4.0, 2.0], "yaw_degrees": 0.0,   "team": 0, "initial_only": true },
+    { "id": 102, "position": [-48.0, -12.0, 2.0], "yaw_degrees": 15.0, "team": 0 },
+    { "id": 103, "position": [-48.0,  12.0, 2.0], "yaw_degrees": -15.0, "team": 0 },
+
+    { "id": 110, "position": [60.0,  4.0, 2.0], "yaw_degrees": 180.0, "team": 1, "initial_only": true },
+    { "id": 111, "position": [60.0, -4.0, 2.0], "yaw_degrees": 180.0, "team": 1, "initial_only": true },
+    { "id": 112, "position": [48.0,  12.0, 2.0], "yaw_degrees": 195.0, "team": 1 },
+    { "id": 113, "position": [48.0, -12.0, 2.0], "yaw_degrees": 165.0, "team": 1 },
+
+    { "id": 120, "position": [0.0, -24.0, 2.0], "yaw_degrees": 90.0,  "label": "neutral_mid" },
+    { "id": 121, "position": [0.0,  24.0, 2.0], "yaw_degrees": 270.0, "label": "neutral_mid" }
+  ],
+
+  "objectives": [
+    {
+      "id": 200,
+      "kind": "flag_stand",
+      "team": 0,
+      "position": [-64.0, 0.0, 2.0],
+      "yaw_degrees": 0.0,
+      "label": "ctf_flag_return_red"
+    },
+    {
+      "id": 201,
+      "kind": "flag_stand",
+      "team": 1,
+      "position": [64.0, 0.0, 2.0],
+      "yaw_degrees": 180.0,
+      "label": "ctf_flag_return_blue"
+    },
+    {
+      "id": 210,
+      "kind": "hill_marker",
+      "position": [0.0, 0.0, 2.0],
+      "shape": { "type": "cylinder", "radius": 12.0, "top": 6.0, "bottom": 2.0 },
+      "label": "koth_hill_centre"
+    }
+  ],
+
+  "boundaries": [
+    {
+      "id": 300,
+      "kind": "playable",
+      "name": "canyon_floor",
+      "min": [-80.0, -60.0, -8.0],
+      "max": [ 80.0,  60.0, 60.0]
+    },
+    {
+      "id": 301,
+      "kind": "soft_kill",
+      "name": "upper_ridge",
+      "min": [-80.0, -60.0, 60.0],
+      "max": [ 80.0,  60.0, 120.0]
+    }
+  ]
+}

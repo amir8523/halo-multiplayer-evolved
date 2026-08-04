@@ -1,0 +1,895 @@
+﻿// SPDX-License-Identifier: MIT
+// ForgeEvolved: Steam/SteamApi.cpp
+#define FE_LOG_CATEGORY "Steam.Api"
+
+#include "Steam/SteamApi.h"
+
+#include "Core/Log.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+
+#include <format>
+#include <mutex>
+
+namespace fe::steam {
+namespace {
+
+// ---------------------------------------------------------------------------
+// Function pointer table
+// ---------------------------------------------------------------------------
+
+using PFN_GetHSteamUser          = HSteamUser (*)();
+using PFN_FindOrCreateUserIface  = void* (*)(HSteamUser, const char*);
+using PFN_SteamApiInit           = bool (*)();
+using PFN_SteamApiShutdown       = void (*)();
+using PFN_SteamApiRunCallbacks   = void (*)();
+using PFN_RegisterCallback       = void (*)(CallbackBase*, int);
+using PFN_UnregisterCallback     = void (*)(CallbackBase*);
+using PFN_RegisterCallResult     = void (*)(CallbackBase*, SteamApiCall);
+using PFN_UnregisterCallResult   = void (*)(CallbackBase*, SteamApiCall);
+
+// ISteamUser
+using PFN_User_GetSteamId  = SteamId (*)(void*);
+using PFN_User_BLoggedOn   = bool (*)(void*);
+
+// ISteamFriends
+using PFN_Friends_GetPersonaName        = const char* (*)(void*);
+using PFN_Friends_GetFriendPersonaName  = const char* (*)(void*, SteamId);
+using PFN_Friends_ActivateInviteDialog  = void (*)(void*, SteamId);
+using PFN_Friends_SetRichPresence       = bool (*)(void*, const char*, const char*);
+
+// ISteamMatchmaking
+using PFN_MM_CreateLobby          = SteamApiCall (*)(void*, ELobbyType, int);
+using PFN_MM_JoinLobby            = SteamApiCall (*)(void*, SteamId);
+using PFN_MM_LeaveLobby           = void (*)(void*, SteamId);
+using PFN_MM_SetLobbyData         = bool (*)(void*, SteamId, const char*, const char*);
+using PFN_MM_GetLobbyData         = const char* (*)(void*, SteamId, const char*);
+using PFN_MM_SetLobbyMemberData   = void (*)(void*, SteamId, const char*, const char*);
+using PFN_MM_GetLobbyMemberData   = const char* (*)(void*, SteamId, SteamId, const char*);
+using PFN_MM_GetNumLobbyMembers   = int (*)(void*, SteamId);
+using PFN_MM_RequestLobbyList     = SteamApiCall (*)(void*);
+using PFN_MM_GetLobbyByIndex      = SteamId (*)(void*, int);
+using PFN_MM_AddDistanceFilter    = void (*)(void*, int);
+using PFN_MM_AddResultCountFilter = void (*)(void*, int);
+using PFN_MM_GetLobbyMemberLimit  = int (*)(void*, SteamId);
+using PFN_MM_GetLobbyMemberByIndex = SteamId (*)(void*, SteamId, int);
+using PFN_MM_GetLobbyOwner        = SteamId (*)(void*, SteamId);
+using PFN_MM_SetLobbyType         = bool (*)(void*, SteamId, ELobbyType);
+
+// ISteamNetworkingUtils
+using PFN_NU_InitRelayNetworkAccess = void (*)(void*);
+using PFN_NU_AllocateMessage        = SteamNetworkingMessage* (*)(void*, int);
+
+// ISteamNetworkingSockets
+using PFN_NS_CreateListenSocketP2P = HSteamListenSocket (*)(void*, int, int,
+                                                            const SteamNetworkingConfigValue*);
+using PFN_NS_CloseListenSocket     = bool (*)(void*, HSteamListenSocket);
+using PFN_NS_ConnectP2P            = HSteamNetConnection (*)(void*,
+                                                             const SteamNetworkingIdentity*, int,
+                                                             int,
+                                                             const SteamNetworkingConfigValue*);
+using PFN_NS_AcceptConnection      = EResult (*)(void*, HSteamNetConnection);
+using PFN_NS_CloseConnection       = bool (*)(void*, HSteamNetConnection, int, const char*, bool);
+using PFN_NS_CreatePollGroup       = HSteamNetPollGroup (*)(void*);
+using PFN_NS_DestroyPollGroup      = bool (*)(void*, HSteamNetPollGroup);
+using PFN_NS_SetConnectionPollGroup = bool (*)(void*, HSteamNetConnection, HSteamNetPollGroup);
+using PFN_NS_SendMessages          = void (*)(void*, int, SteamNetworkingMessage* const*,
+                                              std::int64_t*);
+using PFN_NS_ReceiveOnPollGroup    = int (*)(void*, HSteamNetPollGroup,
+                                             SteamNetworkingMessage**, int);
+using PFN_NS_FlushMessages         = EResult (*)(void*, HSteamNetConnection);
+using PFN_NS_ConfigureLanes        = EResult (*)(void*, HSteamNetConnection, int, const int*,
+                                                 const std::uint16_t*);
+using PFN_NS_GetConnectionInfo     = bool (*)(void*, HSteamNetConnection,
+                                              SteamNetConnectionInfo*);
+using PFN_NS_GetRealTimeStatus     = EResult (*)(void*, HSteamNetConnection,
+                                                 SteamNetConnectionRealTimeStatus*, int, void*);
+
+struct Binding {
+    HMODULE module{nullptr};
+    bool    owns_module{false}; ///< True when we called LoadLibrary ourselves.
+    bool    initialized{false};
+
+    // Core
+    PFN_GetHSteamUser         GetHSteamUser{nullptr};
+    PFN_FindOrCreateUserIface FindOrCreateUserInterface{nullptr};
+    PFN_RegisterCallback      RegisterCallback{nullptr};
+    PFN_UnregisterCallback    UnregisterCallback{nullptr};
+    PFN_RegisterCallResult    RegisterCallResult{nullptr};
+    PFN_UnregisterCallResult  UnregisterCallResult{nullptr};
+    PFN_SteamApiInit          SteamApiInit{nullptr};
+    PFN_SteamApiShutdown      SteamApiShutdown{nullptr};
+    PFN_SteamApiRunCallbacks  SteamApiRunCallbacks{nullptr};
+
+    /// True when this binding called SteamAPI_Init and therefore owes a Shutdown.
+    bool initialized_steam_api{false};
+
+    // Interface pointers
+    void* user{nullptr};
+    void* friends{nullptr};
+    void* matchmaking{nullptr};
+    void* networking_utils{nullptr};
+    void* networking_sockets{nullptr};
+
+    // Resolved version strings, for the log.
+    std::string user_version;
+    std::string friends_version;
+    std::string matchmaking_version;
+    std::string networking_utils_version;
+    std::string networking_sockets_version;
+
+    PFN_User_GetSteamId user_GetSteamId{nullptr};
+    PFN_User_BLoggedOn  user_BLoggedOn{nullptr};
+
+    PFN_Friends_GetPersonaName       friends_GetPersonaName{nullptr};
+    PFN_Friends_GetFriendPersonaName friends_GetFriendPersonaName{nullptr};
+    PFN_Friends_ActivateInviteDialog friends_ActivateInviteDialog{nullptr};
+    PFN_Friends_SetRichPresence      friends_SetRichPresence{nullptr};
+
+    PFN_MM_CreateLobby           mm_CreateLobby{nullptr};
+    PFN_MM_JoinLobby             mm_JoinLobby{nullptr};
+    PFN_MM_LeaveLobby            mm_LeaveLobby{nullptr};
+    PFN_MM_SetLobbyData          mm_SetLobbyData{nullptr};
+    PFN_MM_GetLobbyData          mm_GetLobbyData{nullptr};
+    PFN_MM_SetLobbyMemberData    mm_SetLobbyMemberData{nullptr};
+    PFN_MM_GetLobbyMemberData    mm_GetLobbyMemberData{nullptr};
+    PFN_MM_GetNumLobbyMembers    mm_GetNumLobbyMembers{nullptr};
+    PFN_MM_GetLobbyMemberByIndex mm_GetLobbyMemberByIndex{nullptr};
+    PFN_MM_GetLobbyOwner         mm_GetLobbyOwner{nullptr};
+    PFN_MM_SetLobbyType          mm_SetLobbyType{nullptr};
+    PFN_MM_RequestLobbyList      mm_RequestLobbyList{nullptr};
+    PFN_MM_GetLobbyByIndex       mm_GetLobbyByIndex{nullptr};
+    PFN_MM_AddDistanceFilter     mm_AddDistanceFilter{nullptr};
+    PFN_MM_AddResultCountFilter  mm_AddResultCountFilter{nullptr};
+    PFN_MM_GetLobbyMemberLimit   mm_GetLobbyMemberLimit{nullptr};
+
+    PFN_NU_InitRelayNetworkAccess nu_InitRelayNetworkAccess{nullptr};
+    PFN_NU_AllocateMessage        nu_AllocateMessage{nullptr};
+
+    PFN_NS_CreateListenSocketP2P  ns_CreateListenSocketP2P{nullptr};
+    PFN_NS_CloseListenSocket      ns_CloseListenSocket{nullptr};
+    PFN_NS_ConnectP2P             ns_ConnectP2P{nullptr};
+    PFN_NS_AcceptConnection       ns_AcceptConnection{nullptr};
+    PFN_NS_CloseConnection        ns_CloseConnection{nullptr};
+    PFN_NS_CreatePollGroup        ns_CreatePollGroup{nullptr};
+    PFN_NS_DestroyPollGroup       ns_DestroyPollGroup{nullptr};
+    PFN_NS_SetConnectionPollGroup ns_SetConnectionPollGroup{nullptr};
+    PFN_NS_SendMessages           ns_SendMessages{nullptr};
+    PFN_NS_ReceiveOnPollGroup     ns_ReceiveOnPollGroup{nullptr};
+    PFN_NS_FlushMessages          ns_FlushMessages{nullptr};
+    PFN_NS_ConfigureLanes         ns_ConfigureLanes{nullptr};
+    PFN_NS_GetConnectionInfo      ns_GetConnectionInfo{nullptr};
+    PFN_NS_GetRealTimeStatus      ns_GetRealTimeStatus{nullptr};
+};
+
+Binding g_binding;
+
+/// Resolves one export, recording a failure in out_missing.
+template <typename Fn>
+[[nodiscard]] bool Resolve(HMODULE module, const char* name, Fn& out_function,
+                           std::string& out_missing) {
+    // reinterpret_cast through FARPROC is the documented way; the cast is
+    // unavoidable and localized here rather than repeated 40 times.
+    const FARPROC address = ::GetProcAddress(module, name);
+    if (address == nullptr) {
+        if (!out_missing.empty()) {
+            out_missing += ", ";
+        }
+        out_missing += name;
+        return false;
+    }
+    out_function = reinterpret_cast<Fn>(address);
+    return true;
+}
+
+/// Tries each candidate interface version in order, newest first.
+[[nodiscard]] void* AcquireInterface(HSteamUser user, const char* const* versions,
+                                     std::size_t version_count, std::string& out_version) {
+    if (g_binding.FindOrCreateUserInterface == nullptr) {
+        return nullptr;
+    }
+    for (std::size_t i = 0; i < version_count; ++i) {
+        void* const iface = g_binding.FindOrCreateUserInterface(user, versions[i]);
+        if (iface != nullptr) {
+            out_version = versions[i];
+            return iface;
+        }
+    }
+    return nullptr;
+}
+
+/// Locates the already loaded module, or loads it from the game's ThirdParty path.
+[[nodiscard]] HMODULE AcquireModule(std::string_view game_binaries_directory,
+                                    bool allow_load_if_absent, bool& out_owns) {
+    out_owns = false;
+
+    // Already loaded is the case that matters: binding to the instance the game
+    // uses is what puts our callbacks in the registry its RunCallbacks drains.
+    if (const HMODULE existing = ::GetModuleHandleW(L"steam_api64.dll"); existing != nullptr) {
+        return existing;
+    }
+
+    // Inside the game the caller polls with this false, so we never pre-empt the
+    // shell's own SteamAPI_Init.
+    if (!allow_load_if_absent) {
+        return nullptr;
+    }
+
+    // Fallback: the copy the game ships. Path is derived from the game binaries
+    // directory, which is <game>/Meteorite/Binaries/Win64, so the SDK redist is
+    // four levels up at Engine/Binaries/ThirdParty/Steamworks/Steamv157/Win64.
+    std::wstring wide;
+    wide.reserve(game_binaries_directory.size());
+    for (const char c : game_binaries_directory) {
+        wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+    }
+
+    static constexpr const wchar_t* kRelativeCandidates[] = {
+        L"\\..\\..\\..\\Engine\\Binaries\\ThirdParty\\Steamworks\\Steamv157\\Win64\\steam_api64.dll",
+        L"\\steam_api64.dll",
+    };
+
+    for (const wchar_t* relative : kRelativeCandidates) {
+        const std::wstring candidate = wide + relative;
+        if (const HMODULE loaded =
+                ::LoadLibraryExW(candidate.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            loaded != nullptr) {
+            out_owns = true;
+            return loaded;
+        }
+    }
+
+    // Last resort: the search path, which finds it if the game loaded it from
+    // somewhere unexpected.
+    if (const HMODULE loaded = ::LoadLibraryW(L"steam_api64.dll"); loaded != nullptr) {
+        out_owns = true;
+        return loaded;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_absent,
+                std::string& out_error) {
+    if (g_binding.initialized) {
+        return true;
+    }
+
+    bool owns = false;
+    HMODULE const module = AcquireModule(game_binaries_directory, allow_load_if_absent, owns);
+    if (module == nullptr) {
+        out_error = allow_load_if_absent
+                        ? "steam_api64.dll could not be located; is Steam running and the game "
+                          "launched through it?"
+                        : "steam_api64.dll is not loaded in this process yet; waiting for the "
+                          "game to load it rather than pre-empting its SteamAPI_Init";
+        return false;
+    }
+    g_binding.module      = module;
+    g_binding.owns_module = owns;
+
+    std::string missing;
+
+    // Core exports. Without these nothing else is reachable.
+    const bool core_ok =
+        Resolve(module, "SteamAPI_GetHSteamUser", g_binding.GetHSteamUser, missing) &&
+        Resolve(module, "SteamInternal_FindOrCreateUserInterface",
+                g_binding.FindOrCreateUserInterface, missing) &&
+        Resolve(module, "SteamAPI_RegisterCallback", g_binding.RegisterCallback, missing) &&
+        Resolve(module, "SteamAPI_UnregisterCallback", g_binding.UnregisterCallback, missing) &&
+        Resolve(module, "SteamAPI_RegisterCallResult", g_binding.RegisterCallResult, missing) &&
+        Resolve(module, "SteamAPI_UnregisterCallResult", g_binding.UnregisterCallResult, missing);
+
+    if (!core_ok) {
+        out_error = std::format("steam_api64.dll is missing required exports: {}", missing);
+        Shutdown();
+        return false;
+    }
+
+    // SteamAPI_Init is called only when this binding loaded the module itself.
+    //
+    // Inside the game the host application already called it, and calling it again
+    // from a DLL sharing the same module is not how the flat API is meant to be
+    // shared. But when we loaded the module (a test harness, or a headless dedicated
+    // server), nobody has initialized Steam and every interface query would return
+    // null. So ownership of the module decides ownership of initialization.
+    if (g_binding.owns_module) {
+        std::string init_missing;
+        (void)Resolve(module, "SteamAPI_Init", g_binding.SteamApiInit, init_missing);
+        (void)Resolve(module, "SteamAPI_Shutdown", g_binding.SteamApiShutdown, init_missing);
+        // Owning the API means owning the callback pump. Without it no call result
+        // ever completes.
+        (void)Resolve(module, "SteamAPI_RunCallbacks", g_binding.SteamApiRunCallbacks,
+                      init_missing);
+
+        if (g_binding.SteamApiInit == nullptr) {
+            out_error = "this process loaded steam_api64.dll itself but SteamAPI_Init is not "
+                        "exported, so Steam cannot be initialized";
+            Shutdown();
+            return false;
+        }
+        if (!g_binding.SteamApiInit()) {
+            out_error = "SteamAPI_Init failed. The Steam client must be running, and this "
+                        "process needs a steam_appid.txt containing 2806050 beside its "
+                        "executable when it is not launched by Steam.";
+            Shutdown();
+            return false;
+        }
+        g_binding.initialized_steam_api = true;
+        FE_LOG_INFO("this process owns the Steam API: SteamAPI_Init succeeded");
+    }
+
+    const HSteamUser user_handle = g_binding.GetHSteamUser();
+
+    // Interface acquisition. Version candidates newest first.
+    static constexpr const char* kUserVersions[]        = {"SteamUser023", "SteamUser022",
+                                                           "SteamUser021", "SteamUser020"};
+    static constexpr const char* kFriendsVersions[]     = {"SteamFriends018", "SteamFriends017",
+                                                           "SteamFriends015"};
+    static constexpr const char* kMatchmakingVersions[] = {"SteamMatchMaking009",
+                                                           "SteamMatchMaking010"};
+    static constexpr const char* kNetUtilsVersions[]    = {"SteamNetworkingUtils004",
+                                                           "SteamNetworkingUtils003",
+                                                           "SteamNetworkingUtils002"};
+    static constexpr const char* kNetSocketsVersions[]  = {"SteamNetworkingSockets012",
+                                                           "SteamNetworkingSockets011",
+                                                           "SteamNetworkingSockets009"};
+
+    g_binding.user = AcquireInterface(user_handle, kUserVersions, std::size(kUserVersions),
+                                      g_binding.user_version);
+    g_binding.friends = AcquireInterface(user_handle, kFriendsVersions,
+                                         std::size(kFriendsVersions), g_binding.friends_version);
+    g_binding.matchmaking = AcquireInterface(user_handle, kMatchmakingVersions,
+                                             std::size(kMatchmakingVersions),
+                                             g_binding.matchmaking_version);
+    g_binding.networking_sockets =
+        AcquireInterface(user_handle, kNetSocketsVersions, std::size(kNetSocketsVersions),
+                         g_binding.networking_sockets_version);
+
+    // Networking utils is not user scoped in the SDK's own accessor, so a user
+    // handle is tried first and zero second.
+    g_binding.networking_utils = AcquireInterface(user_handle, kNetUtilsVersions,
+                                                  std::size(kNetUtilsVersions),
+                                                  g_binding.networking_utils_version);
+    if (g_binding.networking_utils == nullptr) {
+        g_binding.networking_utils = AcquireInterface(0, kNetUtilsVersions,
+                                                      std::size(kNetUtilsVersions),
+                                                      g_binding.networking_utils_version);
+    }
+
+    if (g_binding.user == nullptr || g_binding.friends == nullptr ||
+        g_binding.matchmaking == nullptr) {
+        out_error = "the Steam client did not provide ISteamUser, ISteamFriends and "
+                    "ISteamMatchmaking; the user may be offline or not signed in";
+        Shutdown();
+        return false;
+    }
+
+    // Method resolution. Grouped so a missing one names itself.
+    (void)Resolve(module, "SteamAPI_ISteamUser_GetSteamID", g_binding.user_GetSteamId, missing);
+    (void)Resolve(module, "SteamAPI_ISteamUser_BLoggedOn", g_binding.user_BLoggedOn, missing);
+
+    (void)Resolve(module, "SteamAPI_ISteamFriends_GetPersonaName",
+                  g_binding.friends_GetPersonaName, missing);
+    (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendPersonaName",
+                  g_binding.friends_GetFriendPersonaName, missing);
+    (void)Resolve(module, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog",
+                  g_binding.friends_ActivateInviteDialog, missing);
+    (void)Resolve(module, "SteamAPI_ISteamFriends_SetRichPresence",
+                  g_binding.friends_SetRichPresence, missing);
+
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_CreateLobby", g_binding.mm_CreateLobby,
+                  missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_JoinLobby", g_binding.mm_JoinLobby, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_LeaveLobby", g_binding.mm_LeaveLobby,
+                  missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_SetLobbyData", g_binding.mm_SetLobbyData,
+                  missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyData", g_binding.mm_GetLobbyData,
+                  missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_SetLobbyMemberData",
+                  g_binding.mm_SetLobbyMemberData, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyMemberData",
+                  g_binding.mm_GetLobbyMemberData, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetNumLobbyMembers",
+                  g_binding.mm_GetNumLobbyMembers, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyMemberByIndex",
+                  g_binding.mm_GetLobbyMemberByIndex, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyOwner", g_binding.mm_GetLobbyOwner,
+                  missing);
+    // Lobby search, which is what a server browser is made of.
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_RequestLobbyList",
+                  g_binding.mm_RequestLobbyList, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyByIndex",
+                  g_binding.mm_GetLobbyByIndex, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter",
+                  g_binding.mm_AddDistanceFilter, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter",
+                  g_binding.mm_AddResultCountFilter, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyMemberLimit",
+                  g_binding.mm_GetLobbyMemberLimit, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_SetLobbyType", g_binding.mm_SetLobbyType,
+                  missing);
+
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess",
+                  g_binding.nu_InitRelayNetworkAccess, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingUtils_AllocateMessage",
+                  g_binding.nu_AllocateMessage, missing);
+
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P",
+                  g_binding.ns_CreateListenSocketP2P, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_CloseListenSocket",
+                  g_binding.ns_CloseListenSocket, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_ConnectP2P",
+                  g_binding.ns_ConnectP2P, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_AcceptConnection",
+                  g_binding.ns_AcceptConnection, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_CloseConnection",
+                  g_binding.ns_CloseConnection, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_CreatePollGroup",
+                  g_binding.ns_CreatePollGroup, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_DestroyPollGroup",
+                  g_binding.ns_DestroyPollGroup, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_SetConnectionPollGroup",
+                  g_binding.ns_SetConnectionPollGroup, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_SendMessages",
+                  g_binding.ns_SendMessages, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnPollGroup",
+                  g_binding.ns_ReceiveOnPollGroup, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection",
+                  g_binding.ns_FlushMessages, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_ConfigureConnectionLanes",
+                  g_binding.ns_ConfigureLanes, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_GetConnectionInfo",
+                  g_binding.ns_GetConnectionInfo, missing);
+    (void)Resolve(module, "SteamAPI_ISteamNetworkingSockets_GetConnectionRealTimeStatus",
+                  g_binding.ns_GetRealTimeStatus, missing);
+
+    if (!missing.empty()) {
+        // Recorded but not fatal: the lobby half can operate without the
+        // networking half, and HasNetworkingSockets reports the difference.
+        FE_LOG_WARN("steam_api64.dll did not provide: {}", missing);
+    }
+
+    g_binding.initialized = true;
+    FE_LOG_INFO("{}", DescribeBinding());
+    return true;
+}
+
+void Shutdown() {
+    // Only shut down Steam if we started it. Calling SteamAPI_Shutdown inside the
+    // game would tear down the host application's Steam state.
+    if (g_binding.initialized_steam_api && g_binding.SteamApiShutdown != nullptr) {
+        g_binding.SteamApiShutdown();
+    }
+    if (g_binding.owns_module && g_binding.module != nullptr) {
+        ::FreeLibrary(g_binding.module);
+    }
+    g_binding = Binding{};
+}
+
+bool IsInitialized() noexcept {
+    return g_binding.initialized;
+}
+
+bool OwnsSteamApi() noexcept {
+    return g_binding.initialized_steam_api;
+}
+
+void RunCallbacks() {
+    // Guarded on ownership rather than trusting the caller: pumping callbacks inside
+    // the game would race with the host application's own pump.
+    if (g_binding.initialized_steam_api && g_binding.SteamApiRunCallbacks != nullptr) {
+        g_binding.SteamApiRunCallbacks();
+    }
+}
+
+bool HasNetworkingSockets() noexcept {
+    return g_binding.initialized && g_binding.networking_sockets != nullptr &&
+           g_binding.networking_utils != nullptr &&
+           g_binding.ns_CreateListenSocketP2P != nullptr && g_binding.ns_ConnectP2P != nullptr &&
+           g_binding.ns_SendMessages != nullptr && g_binding.ns_ReceiveOnPollGroup != nullptr &&
+           g_binding.nu_AllocateMessage != nullptr;
+}
+
+std::string DescribeBinding() {
+    return std::format(
+        "steam binding: module={} owned={} user='{}' friends='{}' matchmaking='{}' "
+        "net_sockets='{}' net_utils='{}' networking_ready={} "
+        "[sizes identity={} msg={} conn_info={} rt_status={} status_cb={}]",
+        static_cast<const void*>(g_binding.module), g_binding.owns_module,
+        g_binding.user_version.empty() ? "none" : g_binding.user_version,
+        g_binding.friends_version.empty() ? "none" : g_binding.friends_version,
+        g_binding.matchmaking_version.empty() ? "none" : g_binding.matchmaking_version,
+        g_binding.networking_sockets_version.empty() ? "none"
+                                                     : g_binding.networking_sockets_version,
+        g_binding.networking_utils_version.empty() ? "none" : g_binding.networking_utils_version,
+        HasNetworkingSockets(), sizeof(SteamNetworkingIdentity), sizeof(SteamNetworkingMessage),
+        sizeof(SteamNetConnectionInfo), sizeof(SteamNetConnectionRealTimeStatus),
+        sizeof(SteamNetConnectionStatusChangedCallback));
+}
+
+// ---------------------------------------------------------------------------
+// Callback registration
+// ---------------------------------------------------------------------------
+
+void RegisterCallback(CallbackBase* callback, int callback_id) {
+    if (g_binding.RegisterCallback != nullptr && callback != nullptr) {
+        g_binding.RegisterCallback(callback, callback_id);
+    }
+}
+
+void UnregisterCallback(CallbackBase* callback) {
+    if (g_binding.UnregisterCallback != nullptr && callback != nullptr) {
+        g_binding.UnregisterCallback(callback);
+    }
+}
+
+void RegisterCallResult(CallbackBase* callback, SteamApiCall call) {
+    if (g_binding.RegisterCallResult != nullptr && callback != nullptr) {
+        g_binding.RegisterCallResult(callback, call);
+    }
+}
+
+void UnregisterCallResult(CallbackBase* callback, SteamApiCall call) {
+    if (g_binding.UnregisterCallResult != nullptr && callback != nullptr) {
+        g_binding.UnregisterCallResult(callback, call);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ISteamUser
+// ---------------------------------------------------------------------------
+
+SteamId GetLocalSteamId() {
+    if (g_binding.user_GetSteamId == nullptr || g_binding.user == nullptr) {
+        return 0;
+    }
+    return g_binding.user_GetSteamId(g_binding.user);
+}
+
+bool IsLoggedOn() {
+    if (g_binding.user_BLoggedOn == nullptr || g_binding.user == nullptr) {
+        return false;
+    }
+    return g_binding.user_BLoggedOn(g_binding.user);
+}
+
+// ---------------------------------------------------------------------------
+// ISteamFriends
+// ---------------------------------------------------------------------------
+
+const char* GetPersonaName() {
+    if (g_binding.friends_GetPersonaName == nullptr || g_binding.friends == nullptr) {
+        return nullptr;
+    }
+    return g_binding.friends_GetPersonaName(g_binding.friends);
+}
+
+const char* GetFriendPersonaName(SteamId user) {
+    if (g_binding.friends_GetFriendPersonaName == nullptr || g_binding.friends == nullptr) {
+        return nullptr;
+    }
+    return g_binding.friends_GetFriendPersonaName(g_binding.friends, user);
+}
+
+void ActivateGameOverlayInviteDialog(SteamId lobby) {
+    if (g_binding.friends_ActivateInviteDialog != nullptr && g_binding.friends != nullptr) {
+        g_binding.friends_ActivateInviteDialog(g_binding.friends, lobby);
+    }
+}
+
+bool SetRichPresence(const char* key, const char* value) {
+    if (g_binding.friends_SetRichPresence == nullptr || g_binding.friends == nullptr) {
+        return false;
+    }
+    return g_binding.friends_SetRichPresence(g_binding.friends, key, value);
+}
+
+// ---------------------------------------------------------------------------
+// ISteamMatchmaking
+// ---------------------------------------------------------------------------
+
+SteamApiCall CreateLobby(ELobbyType type, int max_members) {
+    if (g_binding.mm_CreateLobby == nullptr || g_binding.matchmaking == nullptr) {
+        return kInvalidApiCall;
+    }
+    return g_binding.mm_CreateLobby(g_binding.matchmaking, type, max_members);
+}
+
+SteamApiCall JoinLobby(SteamId lobby) {
+    if (g_binding.mm_JoinLobby == nullptr || g_binding.matchmaking == nullptr) {
+        return kInvalidApiCall;
+    }
+    return g_binding.mm_JoinLobby(g_binding.matchmaking, lobby);
+}
+
+void LeaveLobby(SteamId lobby) {
+    if (g_binding.mm_LeaveLobby != nullptr && g_binding.matchmaking != nullptr) {
+        g_binding.mm_LeaveLobby(g_binding.matchmaking, lobby);
+    }
+}
+
+bool SetLobbyData(SteamId lobby, const char* key, const char* value) {
+    if (g_binding.mm_SetLobbyData == nullptr || g_binding.matchmaking == nullptr) {
+        return false;
+    }
+    return g_binding.mm_SetLobbyData(g_binding.matchmaking, lobby, key, value);
+}
+
+const char* GetLobbyData(SteamId lobby, const char* key) {
+    if (g_binding.mm_GetLobbyData == nullptr || g_binding.matchmaking == nullptr) {
+        return nullptr;
+    }
+    return g_binding.mm_GetLobbyData(g_binding.matchmaking, lobby, key);
+}
+
+void SetLobbyMemberData(SteamId lobby, const char* key, const char* value) {
+    if (g_binding.mm_SetLobbyMemberData != nullptr && g_binding.matchmaking != nullptr) {
+        g_binding.mm_SetLobbyMemberData(g_binding.matchmaking, lobby, key, value);
+    }
+}
+
+const char* GetLobbyMemberData(SteamId lobby, SteamId user, const char* key) {
+    if (g_binding.mm_GetLobbyMemberData == nullptr || g_binding.matchmaking == nullptr) {
+        return nullptr;
+    }
+    return g_binding.mm_GetLobbyMemberData(g_binding.matchmaking, lobby, user, key);
+}
+
+namespace {
+
+/// Lobbies from the last completed search, and how many the search returned.
+///
+/// Steam answers a search with a count, and each entry is then read back by index. The
+/// results are kept here so a browser can redraw without asking Steam again on every frame.
+std::mutex                g_browse_mutex;
+std::vector<LobbyListing> g_browse_results;
+int                       g_browse_count = 0;
+
+} // namespace
+
+void RequestLobbyList() {
+    if (g_binding.mm_RequestLobbyList == nullptr || g_binding.matchmaking == nullptr) {
+        return;
+    }
+    // Worldwide, and capped, so a browser cannot be handed an unbounded list.
+    if (g_binding.mm_AddDistanceFilter != nullptr) {
+        g_binding.mm_AddDistanceFilter(g_binding.matchmaking, 3 /* worldwide */);
+    }
+    if (g_binding.mm_AddResultCountFilter != nullptr) {
+        g_binding.mm_AddResultCountFilter(g_binding.matchmaking, 50);
+    }
+    (void)g_binding.mm_RequestLobbyList(g_binding.matchmaking);
+}
+
+std::vector<LobbyListing> BrowseLobbies() {
+    if (g_binding.mm_GetLobbyByIndex == nullptr || g_binding.matchmaking == nullptr) {
+        return {};
+    }
+
+    std::lock_guard lock(g_browse_mutex);
+    g_browse_results.clear();
+
+    // Steam keeps the last result set addressable by index. Reading past the end returns an
+    // invalid id, which is the natural place to stop.
+    for (int index = 0; index < g_browse_count; ++index) {
+        const SteamId lobby = g_binding.mm_GetLobbyByIndex(g_binding.matchmaking, index);
+        if (lobby == 0) {
+            break;
+        }
+
+        LobbyListing listing;
+        listing.id = lobby;
+
+        const auto read = [lobby](const char* key) -> std::string {
+            const char* value = GetLobbyData(lobby, key);
+            return (value != nullptr) ? std::string{value} : std::string{};
+        };
+        listing.name = read("name");
+        listing.mode = read("mode");
+        listing.map  = read("map");
+
+        listing.members = GetNumLobbyMembers(lobby);
+        if (g_binding.mm_GetLobbyMemberLimit != nullptr) {
+            listing.capacity = g_binding.mm_GetLobbyMemberLimit(g_binding.matchmaking, lobby);
+        }
+
+        // Only lobbies this mod advertised are shown. Without the marker the list would
+        // include every unrelated lobby the app has open.
+        if (read("forge_evolved").empty()) {
+            continue;
+        }
+        g_browse_results.push_back(std::move(listing));
+    }
+    return g_browse_results;
+}
+
+/// Records how many lobbies the last search returned. Called from the callback.
+void SetBrowseResultCount(int count) {
+    std::lock_guard lock(g_browse_mutex);
+    g_browse_count = count;
+}
+
+int GetNumLobbyMembers(SteamId lobby) {
+    if (g_binding.mm_GetNumLobbyMembers == nullptr || g_binding.matchmaking == nullptr) {
+        return 0;
+    }
+    return g_binding.mm_GetNumLobbyMembers(g_binding.matchmaking, lobby);
+}
+
+SteamId GetLobbyMemberByIndex(SteamId lobby, int index) {
+    if (g_binding.mm_GetLobbyMemberByIndex == nullptr || g_binding.matchmaking == nullptr) {
+        return 0;
+    }
+    return g_binding.mm_GetLobbyMemberByIndex(g_binding.matchmaking, lobby, index);
+}
+
+SteamId GetLobbyOwner(SteamId lobby) {
+    if (g_binding.mm_GetLobbyOwner == nullptr || g_binding.matchmaking == nullptr) {
+        return 0;
+    }
+    return g_binding.mm_GetLobbyOwner(g_binding.matchmaking, lobby);
+}
+
+bool SetLobbyType(SteamId lobby, ELobbyType type) {
+    if (g_binding.mm_SetLobbyType == nullptr || g_binding.matchmaking == nullptr) {
+        return false;
+    }
+    return g_binding.mm_SetLobbyType(g_binding.matchmaking, lobby, type);
+}
+
+// ---------------------------------------------------------------------------
+// ISteamNetworkingUtils
+// ---------------------------------------------------------------------------
+
+void InitRelayNetworkAccess() {
+    if (g_binding.nu_InitRelayNetworkAccess != nullptr && g_binding.networking_utils != nullptr) {
+        g_binding.nu_InitRelayNetworkAccess(g_binding.networking_utils);
+    }
+}
+
+SteamNetworkingMessage* AllocateMessage(int payload_size) {
+    if (g_binding.nu_AllocateMessage == nullptr || g_binding.networking_utils == nullptr) {
+        return nullptr;
+    }
+    return g_binding.nu_AllocateMessage(g_binding.networking_utils, payload_size);
+}
+
+// ---------------------------------------------------------------------------
+// ISteamNetworkingSockets
+// ---------------------------------------------------------------------------
+
+HSteamListenSocket CreateListenSocketP2P(int virtual_port, int option_count,
+                                         const SteamNetworkingConfigValue* options) {
+    if (g_binding.ns_CreateListenSocketP2P == nullptr ||
+        g_binding.networking_sockets == nullptr) {
+        return kInvalidListenSocket;
+    }
+    return g_binding.ns_CreateListenSocketP2P(g_binding.networking_sockets, virtual_port,
+                                              option_count, options);
+}
+
+bool CloseListenSocket(HSteamListenSocket socket) {
+    if (g_binding.ns_CloseListenSocket == nullptr || g_binding.networking_sockets == nullptr) {
+        return false;
+    }
+    return g_binding.ns_CloseListenSocket(g_binding.networking_sockets, socket);
+}
+
+HSteamNetConnection ConnectP2P(const SteamNetworkingIdentity& peer, int virtual_port,
+                               int option_count, const SteamNetworkingConfigValue* options) {
+    if (g_binding.ns_ConnectP2P == nullptr || g_binding.networking_sockets == nullptr) {
+        return kInvalidConnection;
+    }
+    return g_binding.ns_ConnectP2P(g_binding.networking_sockets, &peer, virtual_port,
+                                   option_count, options);
+}
+
+EResult AcceptConnection(HSteamNetConnection connection) {
+    if (g_binding.ns_AcceptConnection == nullptr || g_binding.networking_sockets == nullptr) {
+        return EResult::Fail;
+    }
+    return g_binding.ns_AcceptConnection(g_binding.networking_sockets, connection);
+}
+
+bool CloseConnection(HSteamNetConnection connection, int reason, const char* debug_text,
+                     bool enable_linger) {
+    if (g_binding.ns_CloseConnection == nullptr || g_binding.networking_sockets == nullptr) {
+        return false;
+    }
+    return g_binding.ns_CloseConnection(g_binding.networking_sockets, connection, reason,
+                                        debug_text, enable_linger);
+}
+
+HSteamNetPollGroup CreatePollGroup() {
+    if (g_binding.ns_CreatePollGroup == nullptr || g_binding.networking_sockets == nullptr) {
+        return kInvalidPollGroup;
+    }
+    return g_binding.ns_CreatePollGroup(g_binding.networking_sockets);
+}
+
+bool DestroyPollGroup(HSteamNetPollGroup group) {
+    if (g_binding.ns_DestroyPollGroup == nullptr || g_binding.networking_sockets == nullptr) {
+        return false;
+    }
+    return g_binding.ns_DestroyPollGroup(g_binding.networking_sockets, group);
+}
+
+bool SetConnectionPollGroup(HSteamNetConnection connection, HSteamNetPollGroup group) {
+    if (g_binding.ns_SetConnectionPollGroup == nullptr ||
+        g_binding.networking_sockets == nullptr) {
+        return false;
+    }
+    return g_binding.ns_SetConnectionPollGroup(g_binding.networking_sockets, connection, group);
+}
+
+void SendMessages(int message_count, SteamNetworkingMessage* const* messages,
+                  std::int64_t* out_message_numbers) {
+    if (g_binding.ns_SendMessages == nullptr || g_binding.networking_sockets == nullptr) {
+        // Steam takes ownership of a message passed to SendMessages. If the call
+        // cannot be made the caller would leak, so the messages are released here.
+        for (int i = 0; i < message_count; ++i) {
+            if (messages[i] != nullptr) {
+                messages[i]->Release();
+            }
+            if (out_message_numbers != nullptr) {
+                out_message_numbers[i] = -static_cast<std::int64_t>(EResult::NoConnection);
+            }
+        }
+        return;
+    }
+    g_binding.ns_SendMessages(g_binding.networking_sockets, message_count, messages,
+                              out_message_numbers);
+}
+
+int ReceiveMessagesOnPollGroup(HSteamNetPollGroup group, SteamNetworkingMessage** out_messages,
+                               int max_messages) {
+    if (g_binding.ns_ReceiveOnPollGroup == nullptr || g_binding.networking_sockets == nullptr) {
+        return 0;
+    }
+    return g_binding.ns_ReceiveOnPollGroup(g_binding.networking_sockets, group, out_messages,
+                                           max_messages);
+}
+
+EResult FlushMessagesOnConnection(HSteamNetConnection connection) {
+    if (g_binding.ns_FlushMessages == nullptr || g_binding.networking_sockets == nullptr) {
+        return EResult::Fail;
+    }
+    return g_binding.ns_FlushMessages(g_binding.networking_sockets, connection);
+}
+
+EResult ConfigureConnectionLanes(HSteamNetConnection connection, int lane_count,
+                                 const int* priorities, const std::uint16_t* weights) {
+    if (g_binding.ns_ConfigureLanes == nullptr || g_binding.networking_sockets == nullptr) {
+        return EResult::Fail;
+    }
+    return g_binding.ns_ConfigureLanes(g_binding.networking_sockets, connection, lane_count,
+                                       priorities, weights);
+}
+
+bool GetConnectionInfo(HSteamNetConnection connection, SteamNetConnectionInfo* out_info) {
+    if (g_binding.ns_GetConnectionInfo == nullptr || g_binding.networking_sockets == nullptr) {
+        return false;
+    }
+    return g_binding.ns_GetConnectionInfo(g_binding.networking_sockets, connection, out_info);
+}
+
+EResult GetConnectionRealTimeStatus(HSteamNetConnection connection,
+                                    SteamNetConnectionRealTimeStatus* out_status, int lane_count,
+                                    void* out_lanes) {
+    if (g_binding.ns_GetRealTimeStatus == nullptr || g_binding.networking_sockets == nullptr) {
+        return EResult::Fail;
+    }
+    return g_binding.ns_GetRealTimeStatus(g_binding.networking_sockets, connection, out_status,
+                                          lane_count, out_lanes);
+}
+
+} // namespace fe::steam
+
