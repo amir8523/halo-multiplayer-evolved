@@ -397,6 +397,20 @@ void SteamMatchmakingHooks::Dispatch(const Event& event, ILobbyBackendObserver& 
             return;
 
         case EventKind::LobbyEntered:
+            // Only lobbies this mod asked for.
+            //
+            // Steam raises LobbyEnter for every lobby the process joins, and the game uses
+            // Steam lobbies for its own fireteam. Recording those made the backend believe
+            // it was already in a lobby it had never created, so hosting was refused with
+            // "already in lobby" and no multiplayer session could exist at all. Nothing was
+            // wrong with the session code; it was never reached.
+            //
+            // A lobby is ours if we have a request outstanding, or if it is the one we are
+            // already tracking, which is the enter event that follows our own create.
+            if (!operation_in_flight_ && event.lobby != current_lobby_) {
+                MPE_LOG_INFO("ignoring lobby {}, which this mod did not open", event.lobby);
+                return;
+            }
             current_lobby_       = event.lobby;
             operation_in_flight_ = false;
             RefreshOwnership();

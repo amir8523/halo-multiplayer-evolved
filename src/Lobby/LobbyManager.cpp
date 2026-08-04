@@ -170,14 +170,16 @@ Result LobbyManager::HostSession(const HostOptions& options) {
                             std::format("cannot host while {}", ToString(phase_)));
     }
 
-    // Capability gate first: refusing here costs the player nothing, whereas
-    // discovering it mid launch strands a full lobby.
-    const engine::EngineCapabilities capabilities = engine_.Capabilities();
-    if (!capabilities.SufficientToHost()) {
-        return Result::Fail(ErrorCode::InvalidState,
-                            std::format("this game build cannot be hosted yet: {}",
-                                        capabilities.Describe()));
-    }
+    // No capability gate here.
+    //
+    // Hosting a platform lobby is gathering people: a Steam lobby, a roster, invites and
+    // chat. None of that touches the engine. What needs the engine is launching the match,
+    // and that is where the gate now lives, so a build that cannot yet start a match can
+    // still be used to get everybody into a lobby and ready.
+    //
+    // Refusing here instead meant the session never existed at all, which showed up as a
+    // status line reading OFFLINE and slot buttons that opened no invite, because there was
+    // nothing to invite anyone to.
     MPE_TRY(options.settings.Validate());
 
     if (options.max_players < 2 || options.max_players > 16) {
@@ -209,16 +211,34 @@ Result LobbyManager::HostSession(const HostOptions& options) {
         }
     }
 
-    // Configure the engine's session before any peer can connect.
-    MPE_TRY(engine_.SetSessionClass(engine::SessionClass::SystemLink));
-    MPE_TRY(engine_.SetSessionPrivacy(options.visibility == LobbyVisibility::Public
-                                         ? engine::SessionPrivacy::Open
-                                         : options.visibility == LobbyVisibility::FriendsOnly
-                                               ? engine::SessionPrivacy::FriendsOnly
-                                               : engine::SessionPrivacy::InvitationOnly));
-    // Our listen server designates the host explicitly. A speculative migration
-    // would hand authority to a peer that is not running our transport as host.
-    MPE_TRY(engine_.SetHostMigrationEnabled(false));
+    // Configure the engine's session, but do not require it to succeed.
+    //
+    // These describe how the Blam engine should treat a session, and they only matter once
+    // a match is actually launching. Treating them as fatal here meant a build whose engine
+    // binding is not finished could not open a lobby at all, so nobody could gather, be
+    // invited, or get ready. StartCountdown holds the gate that protects the launch itself,
+    // which is where an unconfigured engine would really cost something.
+    //
+    // Reported rather than swallowed: this is a real limitation of the build and the log
+    // should say so once, at the moment it is discovered.
+    const Result session_class = engine_.SetSessionClass(engine::SessionClass::SystemLink);
+    const Result session_privacy =
+        engine_.SetSessionPrivacy(options.visibility == LobbyVisibility::Public
+                                      ? engine::SessionPrivacy::Open
+                                      : options.visibility == LobbyVisibility::FriendsOnly
+                                            ? engine::SessionPrivacy::FriendsOnly
+                                            : engine::SessionPrivacy::InvitationOnly);
+    // Our listen server designates the host explicitly. A speculative migration would hand
+    // authority to a peer that is not running our transport as host.
+    const Result migration = engine_.SetHostMigrationEnabled(false);
+    if (!session_class.ok() || !session_privacy.ok() || !migration.ok()) {
+        MPE_LOG_WARN("the lobby is open but the engine's own session was not configured: {}. "
+                     "Players can gather and be invited; starting a match is what this "
+                     "blocks.",
+                     session_class.ok() ? (session_privacy.ok() ? migration.message()
+                                                                : session_privacy.message())
+                                        : session_class.message());
+    }
 
     ListenConfig listen;
     listen.max_clients = options.max_players - 1;
@@ -490,6 +510,17 @@ Result LobbyManager::StartCountdown() {
         return Result::Fail(ErrorCode::InvalidState, "at least one other player is required");
     }
     MPE_TRY(settings_.Validate());
+
+    // Capability gate, moved here from HostSession. This is the point where a missing
+    // engine binding actually costs something: a lobby full of people whose match cannot
+    // start. Refusing before the countdown begins is cheap; discovering it mid launch is
+    // not.
+    const engine::EngineCapabilities capabilities = engine_.Capabilities();
+    if (!capabilities.SufficientToHost()) {
+        return Result::Fail(ErrorCode::InvalidState,
+                            std::format("this game build cannot start a match yet: {}",
+                                        capabilities.Describe()));
+    }
 
     // Everyone must be ready and hold the map. Reported specifically so the host
     // knows who to wait for instead of seeing a generic refusal.
