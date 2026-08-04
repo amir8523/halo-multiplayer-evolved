@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Update/UpdateCheck.cpp
-#define FE_LOG_CATEGORY "Update"
+// MultiplayerEvolved: Update/UpdateCheck.cpp
+#define MPE_LOG_CATEGORY "Update"
 
 #include "Update/UpdateCheck.h"
 
@@ -15,7 +15,7 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-namespace fe::update {
+namespace mpe::update {
 namespace {
 
 /// A WinHTTP handle that closes itself.
@@ -109,7 +109,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
         return Error{ErrorCode::InvalidArgument, "no repository given"};
     }
 
-    const Handle session(WinHttpOpen(L"ForgeEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+    const Handle session(WinHttpOpen(L"MultiplayerEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session) {
         return Error{ErrorCode::InvalidState, "could not open an HTTP session"};
@@ -145,7 +145,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
 
     // GitHub rejects requests without a user agent, and serves the stable v3 schema only
     // when it is asked for by name.
-    const wchar_t* headers = L"User-Agent: ForgeEvolved\r\n"
+    const wchar_t* headers = L"User-Agent: MultiplayerEvolved\r\n"
                              L"Accept: application/vnd.github+json\r\n";
     if (WinHttpSendRequest(request.get(), headers, static_cast<DWORD>(-1),
                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) == FALSE ||
@@ -182,8 +182,12 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
         release.version.erase(0, 1);
     }
 
-    // The first asset that is a DLL. A release also carries source archives, which are not
-    // what a player needs to install.
+    // The mod's own DLL, by exact name.
+    //
+    // Matching the first asset ending in .dll was wrong: a release also ships version.dll,
+    // the loader proxy, and picking that one would stage the loader as though it were the
+    // mod. Whichever happened to be uploaded first would decide, which is not a thing worth
+    // leaving to chance when the result gets loaded as code.
     if (document.contains("assets") && document.at("assets").is_array()) {
         const json::Value& assets = document.at("assets");
         for (std::size_t index = 0; index < assets.size(); ++index) {
@@ -192,7 +196,7 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
                 continue;
             }
             const std::string name = asset.at("name").get<std::string>();
-            if (name.size() < 4 || name.compare(name.size() - 4, 4, ".dll") != 0) {
+            if (name != "MultiplayerEvolved.dll") {
                 continue;
             }
             release.asset_name = name;
@@ -206,9 +210,135 @@ Expected<ReleaseInfo> FetchLatestRelease(std::string_view repository) {
         }
     }
 
-    FE_LOG_INFO("newest release is {} ({})", release.version,
+    MPE_LOG_INFO("newest release is {} ({})", release.version,
                 release.asset_name.empty() ? "no downloadable asset" : release.asset_name);
     return release;
 }
 
-} // namespace fe::update
+Result DownloadRelease(const ReleaseInfo& release, const std::wstring& game_binaries_directory,
+                       const std::function<void(long long, long long)>& progress) {
+    if (release.download_url.empty()) {
+        return Result::Fail(ErrorCode::InvalidArgument,
+                            "the release publishes no downloadable asset");
+    }
+
+    // The URL is split by the API rather than by hand, so a host or path this code did not
+    // anticipate cannot be silently mis-parsed into a request against the wrong server.
+    std::wstring url;
+    url.reserve(release.download_url.size());
+    for (const char character : release.download_url) {
+        url.push_back(static_cast<wchar_t>(character));
+    }
+
+    URL_COMPONENTS parts{};
+    parts.dwStructSize     = sizeof(parts);
+    wchar_t host[256]      = {};
+    wchar_t path[2048]     = {};
+    parts.lpszHostName     = host;
+    parts.dwHostNameLength = static_cast<DWORD>(std::size(host));
+    parts.lpszUrlPath      = path;
+    parts.dwUrlPathLength  = static_cast<DWORD>(std::size(path));
+    if (WinHttpCrackUrl(url.c_str(), 0, 0, &parts) == FALSE) {
+        return Result::Fail(ErrorCode::InvalidArgument, "the download URL was not understood");
+    }
+    if (parts.nScheme != INTERNET_SCHEME_HTTPS) {
+        // Refused rather than downgraded. This file is about to be loaded as code.
+        return Result::Fail(ErrorCode::InvalidArgument, "the download URL is not HTTPS");
+    }
+
+    const Handle session(WinHttpOpen(L"MultiplayerEvolved", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    if (!session) {
+        return Result::Fail(ErrorCode::InvalidState, "could not open an HTTP session");
+    }
+    const Handle connection(WinHttpConnect(session.get(), host, parts.nPort, 0));
+    if (!connection) {
+        return Result::Fail(ErrorCode::InvalidState, "could not reach the download host");
+    }
+    const Handle request(WinHttpOpenRequest(connection.get(), L"GET", path, nullptr,
+                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                            WINHTTP_FLAG_SECURE));
+    if (!request) {
+        return Result::Fail(ErrorCode::InvalidState, "could not build the download request");
+    }
+    if (WinHttpSendRequest(request.get(), L"User-Agent: MultiplayerEvolved\r\n",
+                           static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) == FALSE ||
+        WinHttpReceiveResponse(request.get(), nullptr) == FALSE) {
+        return Result::Fail(ErrorCode::InvalidState, "the download request failed");
+    }
+
+    DWORD status = 0;
+    DWORD size   = sizeof(status);
+    (void)WinHttpQueryHeaders(request.get(),
+                              WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                              WINHTTP_HEADER_NAME_BY_INDEX, &status, &size,
+                              WINHTTP_NO_HEADER_INDEX);
+    if (status != 200) {
+        return Result::Fail(ErrorCode::InvalidState,
+                            std::format("the download answered {}", static_cast<int>(status)));
+    }
+
+    // Written under a temporary name and renamed only once the whole file has arrived, so a
+    // download cut halfway through cannot leave something the loader would try to run.
+    const std::wstring pending  = game_binaries_directory + L"MultiplayerEvolved.dll.pending";
+    const std::wstring partial  = pending + L".part";
+    const HANDLE       file     = ::CreateFileW(partial.c_str(), GENERIC_WRITE, 0, nullptr,
+                                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return Result::Fail(ErrorCode::InvalidState, "could not open the download for writing");
+    }
+
+    long long received = 0;
+    bool      failed   = false;
+    for (;;) {
+        DWORD available = 0;
+        if (WinHttpQueryDataAvailable(request.get(), &available) == FALSE) {
+            failed = true;
+            break;
+        }
+        if (available == 0) {
+            break;
+        }
+        std::vector<char> chunk(available);
+        DWORD             read = 0;
+        if (WinHttpReadData(request.get(), chunk.data(), available, &read) == FALSE) {
+            failed = true;
+            break;
+        }
+        DWORD written = 0;
+        if (::WriteFile(file, chunk.data(), read, &written, nullptr) == FALSE ||
+            written != read) {
+            failed = true;
+            break;
+        }
+        received += read;
+        if (progress) {
+            progress(received, release.asset_bytes);
+        }
+    }
+    ::CloseHandle(file);
+
+    if (failed || received == 0) {
+        ::DeleteFileW(partial.c_str());
+        return Result::Fail(ErrorCode::InvalidState, "the download did not complete");
+    }
+    if (release.asset_bytes > 0 && received != release.asset_bytes) {
+        ::DeleteFileW(partial.c_str());
+        return Result::Fail(
+            ErrorCode::InvalidState,
+            std::format("the download was {} bytes, expected {}", received,
+                        release.asset_bytes));
+    }
+
+    ::DeleteFileW(pending.c_str());
+    if (::MoveFileW(partial.c_str(), pending.c_str()) == FALSE) {
+        ::DeleteFileW(partial.c_str());
+        return Result::Fail(ErrorCode::InvalidState, "the download could not be put in place");
+    }
+
+    MPE_LOG_INFO("update {} downloaded ({} bytes); it will be applied at the next start",
+                release.version, received);
+    return Result::Success();
+}
+
+} // namespace mpe::update

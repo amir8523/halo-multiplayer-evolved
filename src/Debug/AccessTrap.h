@@ -1,5 +1,5 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Debug/AccessTrap.h
+// MultiplayerEvolved: Debug/AccessTrap.h
 //
 // Catches the code that reads or writes a specific byte of game memory.
 //
@@ -47,7 +47,7 @@
 
 #include "Core/Result.h"
 
-namespace fe::debugtrap {
+namespace mpe::debugtrap {
 
 /// What kind of access to trap.
 ///
@@ -130,5 +130,5 @@ void SetHitCallback(HitCallback callback);
 /// Number of addresses currently armed.
 [[nodiscard]] std::size_t ArmedCount();
 
-} // namespace fe::debugtrap
+} // namespace mpe::debugtrap
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Map/MapVariantParser.h
+// MultiplayerEvolved: Map/MapVariantParser.h
 //
 // The in game map parser: JSON in, validated MapVariant out.
 //
@@ -35,7 +35,7 @@
 #include "Core/Result.h"
 #include "Map/MapVariant.h"
 
-namespace fe::map {
+namespace mpe::map {
 
 enum class Severity : std::uint8_t {
     /// The map cannot be used. Parsing fails.
@@ -132,4 +132,4 @@ inline constexpr std::uint16_t kCanonicalVersion = 1;
 [[nodiscard]] std::vector<Diagnostic> Validate(const MapVariant& variant,
                                                const ParseOptions& options = {});
 
-} // namespace fe::map
+} // namespace mpe::map

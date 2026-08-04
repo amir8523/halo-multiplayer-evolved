@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/ObjectArray.cpp
-#define FE_LOG_CATEGORY "Unreal.Objects"
+// MultiplayerEvolved: Unreal/ObjectArray.cpp
+#define MPE_LOG_CATEGORY "Unreal.Objects"
 
 #include "Unreal/ObjectArray.h"
 
@@ -15,7 +15,7 @@
 #include <algorithm>
 #include <format>
 
-namespace fe::unreal {
+namespace mpe::unreal {
 namespace {
 
 /// Field offsets inside FChunkedFixedUObjectArray.
@@ -80,7 +80,7 @@ Expected<ObjectArray> ObjectArray::FromAddress(const NamePool& names,
                      std::format("0x{:X} does not describe the object array", array_address)};
     }
 
-    FE_LOG_INFO("GUObjectArray taken directly at 0x{:X}: {} live object(s), sample score {}",
+    MPE_LOG_INFO("GUObjectArray taken directly at 0x{:X}: {} live object(s), sample score {}",
                 array_address, candidate.Count(), score);
     return candidate;
 }
@@ -305,11 +305,11 @@ Expected<ObjectArray> ObjectArray::Locate(const NamePool& names) {
     ObjectArray result(names);
     result.array_address_ = best_address;
 
-    FE_LOG_INFO("GUObjectArray located at 0x{:X}: {} of {} live object(s), capacity {}, "
+    MPE_LOG_INFO("GUObjectArray located at 0x{:X}: {} of {} live object(s), capacity {}, "
                 "sample score {}/{}",
                 best_address, result.Count(), result.Count(), result.Capacity(), best_score,
                 kSampleSize);
-    FE_LOG_INFO("scan cost: {} slot(s) inspected, {} VirtualQuery call(s), {} cache hit(s)",
+    MPE_LOG_INFO("scan cost: {} slot(s) inspected, {} VirtualQuery call(s), {} cache hit(s)",
                 inspected, stats.queries, stats.hits);
 
     return result;
@@ -431,5 +431,5 @@ std::string ObjectArray::BuildPath(const ObjectInfo& object, std::size_t max_dep
     return path;
 }
 
-} // namespace fe::unreal
+} // namespace mpe::unreal
 

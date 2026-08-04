@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/IPeerTransport.h
+// MultiplayerEvolved: Net/IPeerTransport.h
 //
 // Transport abstraction. This is the interface that makes the dedicated server
 // migration a configuration change rather than a rewrite.
@@ -44,7 +44,7 @@
 
 #include "Core/Result.h"
 
-namespace fe::net {
+namespace mpe::net {
 
 /// Local identifier for a connected peer. Stable for the lifetime of the
 /// connection and never reused within a session. Zero is never valid.
@@ -219,4 +219,4 @@ public:
     [[nodiscard]] virtual Expected<PeerStats> QueryStats(PeerHandle peer) const = 0;
 };
 
-} // namespace fe::net
+} // namespace mpe::net

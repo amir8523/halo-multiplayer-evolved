@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/SymbolRegistry.h
+// MultiplayerEvolved: Blam/SymbolRegistry.h
 //
 // Runtime discovery of the Blam name tables.
 //
@@ -57,7 +57,7 @@
 #include "Blam/PatternScanner.h"
 #include "Core/Result.h"
 
-namespace fe::blam {
+namespace mpe::blam {
 
 /// Per build configuration, loaded from data/symbols/<build>.json.
 ///
@@ -226,4 +226,4 @@ private:
     std::vector<std::pair<std::string, bool>> resolution_log_;
 };
 
-} // namespace fe::blam
+} // namespace mpe::blam

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/PatternScanner.h
+// MultiplayerEvolved: Blam/PatternScanner.h
 //
 // Primitives for locating data inside the shipped Blam module at runtime.
 //
@@ -24,7 +24,7 @@
 #include "Blam/ModuleImage.h"
 #include "Core/Result.h"
 
-namespace fe::blam {
+namespace mpe::blam {
 
 /// A byte pattern with wildcards, parsed from IDA style text: "48 8B ?? 48 89".
 class BytePattern {
@@ -98,4 +98,4 @@ private:
     const ModuleImage& image_;
 };
 
-} // namespace fe::blam
+} // namespace mpe::blam

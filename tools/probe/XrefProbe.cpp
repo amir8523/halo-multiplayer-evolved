@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: tools/probe/XrefProbe.cpp
+// MultiplayerEvolved: tools/probe/XrefProbe.cpp
 //
 // Locates the Blam debug command registrar by static cross reference analysis.
 //
@@ -283,7 +283,7 @@ struct RipOperand {
 
 /// Decodes `lea r64, [rip+disp32]` and `mov r64, [rip+disp32]` at a given address.
 /// Returns false when the bytes are not one of those forms.
-[[nodiscard]] bool DecodeRipOperand(const fe::blam::Section& code, std::uintptr_t address,
+[[nodiscard]] bool DecodeRipOperand(const mpe::blam::Section& code, std::uintptr_t address,
                                     RipOperand& out) {
     constexpr std::size_t kLength = 7;
     if (address < code.begin || address + kLength > code.end) {
@@ -316,7 +316,7 @@ struct RipOperand {
 }
 
 /// Decodes a direct `call rel32` (E8) at address.
-[[nodiscard]] bool DecodeDirectCall(const fe::blam::Section& code, std::uintptr_t address,
+[[nodiscard]] bool DecodeDirectCall(const mpe::blam::Section& code, std::uintptr_t address,
                                     std::uintptr_t& out_target) {
     constexpr std::size_t kLength = 5;
     if (address < code.begin || address + kLength > code.end) {
@@ -372,7 +372,7 @@ constexpr RipEncoding kRipEncodings[] = {
 };
 
 /// True when the bytes at address match one encoding and resolve to target.
-[[nodiscard]] bool MatchesRipEncoding(const fe::blam::Section& code, std::uintptr_t address,
+[[nodiscard]] bool MatchesRipEncoding(const mpe::blam::Section& code, std::uintptr_t address,
                                       std::uintptr_t target, const RipEncoding& encoding) {
     if (address < code.begin || address + encoding.total_length > code.end) {
         return false;
@@ -420,7 +420,7 @@ struct GlobalAccess {
     std::uintptr_t function{0};
 };
 
-[[nodiscard]] std::vector<GlobalAccess> FindGlobalAccesses(const fe::blam::Section& code,
+[[nodiscard]] std::vector<GlobalAccess> FindGlobalAccesses(const mpe::blam::Section& code,
                                                           std::uintptr_t target,
                                                           std::size_t max_results) {
     std::vector<GlobalAccess> results;
@@ -462,7 +462,7 @@ int wmain(int argc, wchar_t** argv) {
         return 2;
     }
 
-    fe::log::Initialize(std::filesystem::path("XrefProbe.log"), fe::log::Level::Info);
+    mpe::log::Initialize(std::filesystem::path("XrefProbe.log"), mpe::log::Level::Info);
 
     std::string note;
     const MappedImage mapped = ManualMapImage(std::wstring(argv[1]), note);
@@ -472,7 +472,7 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     const auto image =
-        fe::blam::ModuleImage::FromMappedImage(mapped.base, "HaloSimulation_tag_release.dll");
+        mpe::blam::ModuleImage::FromMappedImage(mapped.base, "HaloSimulation_tag_release.dll");
     if (!image.ok()) {
         Print(std::format("FAIL parse: {}", image.message()));
         return 1;
@@ -483,12 +483,12 @@ int wmain(int argc, wchar_t** argv) {
         Print("FAIL: no .text section");
         return 1;
     }
-    const fe::blam::Section& code = *text.value();
+    const mpe::blam::Section& code = *text.value();
 
     const FunctionTable functions(mapped.base, mapped.pdata_begin, mapped.pdata_size);
     Print(std::format(".pdata describes {} functions", functions.Count()));
 
-    const fe::blam::PatternScanner scanner(image.value());
+    const mpe::blam::PatternScanner scanner(image.value());
 
     // The command names with no static table entry, plus two that do resolve, as a
     // control: if a name that lives in a table shows a different pattern, that is
@@ -656,7 +656,7 @@ int wmain(int argc, wchar_t** argv) {
         // Search every section that can hold initialized data, plus .text, since a
         // read only table can be emitted next to code.
         std::vector<std::uintptr_t> holders;
-        for (const fe::blam::Section& section : image.value().Sections()) {
+        for (const mpe::blam::Section& section : image.value().Sections()) {
             if (section.name == ".reloc" || section.name == ".pdata") {
                 continue;
             }
@@ -675,7 +675,7 @@ int wmain(int argc, wchar_t** argv) {
         for (const std::uintptr_t holder : holders) {
             // Which section the holder lives in, for context.
             std::string section_name = "?";
-            for (const fe::blam::Section& section : image.value().Sections()) {
+            for (const mpe::blam::Section& section : image.value().Sections()) {
                 if (section.Contains(holder)) {
                     section_name = section.name;
                     break;
@@ -733,8 +733,8 @@ int wmain(int argc, wchar_t** argv) {
     Print("Finding code that reads specific globals, to locate the damage pipeline.");
 
     // Discover the globals so their value addresses are known.
-    auto registry = fe::blam::SymbolRegistry::Discover(image.value(),
-                                                       fe::blam::SymbolRegistryConfig::Default());
+    auto registry = mpe::blam::SymbolRegistry::Discover(image.value(),
+                                                       mpe::blam::SymbolRegistryConfig::Default());
     if (!registry.ok()) {
         Print(std::format("  cannot analyse globals: discovery failed: {}", registry.message()));
         Print("");

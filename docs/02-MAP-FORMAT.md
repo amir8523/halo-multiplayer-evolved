@@ -1,6 +1,6 @@
 # The `.fmap.json` map format
 
-Authoring format for ForgeEvolved custom maps. Reference implementation:
+Authoring format for MultiplayerEvolved custom maps. Reference implementation:
 [`src/Map/MapVariantParser.cpp`](../src/Map/MapVariantParser.cpp). Working example:
 [`data/maps/example_canyon.fmap.json`](../data/maps/example_canyon.fmap.json).
 

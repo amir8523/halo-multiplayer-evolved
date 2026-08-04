@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/DebugGlobals.h
+// MultiplayerEvolved: Blam/DebugGlobals.h
 //
 // Read and write access to the engine's debug globals, by name.
 //
@@ -67,7 +67,7 @@
 #include "Blam/SymbolRegistry.h"
 #include "Core/Result.h"
 
-namespace fe::blam {
+namespace mpe::blam {
 
 /// Type tag values observed in the debug global tables.
 enum class GlobalType : std::uint64_t {
@@ -135,4 +135,4 @@ private:
     const SymbolRegistry& registry_;
 };
 
-} // namespace fe::blam
+} // namespace mpe::blam

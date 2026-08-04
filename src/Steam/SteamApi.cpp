@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Steam/SteamApi.cpp
-#define FE_LOG_CATEGORY "Steam.Api"
+// MultiplayerEvolved: Steam/SteamApi.cpp
+#define MPE_LOG_CATEGORY "Steam.Api"
 
 #include "Steam/SteamApi.h"
 
@@ -12,7 +12,7 @@
 #include <format>
 #include <mutex>
 
-namespace fe::steam {
+namespace mpe::steam {
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -322,7 +322,7 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
             return false;
         }
         g_binding.initialized_steam_api = true;
-        FE_LOG_INFO("this process owns the Steam API: SteamAPI_Init succeeded");
+        MPE_LOG_INFO("this process owns the Steam API: SteamAPI_Init succeeded");
     }
 
     const HSteamUser user_handle = g_binding.GetHSteamUser();
@@ -454,11 +454,11 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
     if (!missing.empty()) {
         // Recorded but not fatal: the lobby half can operate without the
         // networking half, and HasNetworkingSockets reports the difference.
-        FE_LOG_WARN("steam_api64.dll did not provide: {}", missing);
+        MPE_LOG_WARN("steam_api64.dll did not provide: {}", missing);
     }
 
     g_binding.initialized = true;
-    FE_LOG_INFO("{}", DescribeBinding());
+    MPE_LOG_INFO("{}", DescribeBinding());
     return true;
 }
 
@@ -891,5 +891,5 @@ EResult GetConnectionRealTimeStatus(HSteamNetConnection connection,
                                           lane_count, out_lanes);
 }
 
-} // namespace fe::steam
+} // namespace mpe::steam
 

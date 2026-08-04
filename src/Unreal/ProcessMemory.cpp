@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/ProcessMemory.cpp
+// MultiplayerEvolved: Unreal/ProcessMemory.cpp
 #include "Unreal/ProcessMemory.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -7,7 +7,7 @@
 
 #include <cstring>
 
-namespace fe::unreal::memory {
+namespace mpe::unreal::memory {
 namespace {
 
 /// Cached bounds of one memory region, per thread.
@@ -186,4 +186,4 @@ void ResetStats() noexcept {
     g_stats = CacheStats{};
 }
 
-} // namespace fe::unreal::memory
+} // namespace mpe::unreal::memory

@@ -1,5 +1,5 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Pacing.h
+// MultiplayerEvolved: Core/Pacing.h
 //
 // Adaptive waiting and cooperative scanning.
 //
@@ -41,7 +41,7 @@
 #include <functional>
 #include <string_view>
 
-namespace fe::pacing {
+namespace mpe::pacing {
 
 /// Cooperative yielding for long scans.
 ///
@@ -121,5 +121,5 @@ private:
                                int consecutive_samples = 3,
                                std::chrono::milliseconds sample_interval = std::chrono::seconds(2));
 
-} // namespace fe::pacing
+} // namespace mpe::pacing
 

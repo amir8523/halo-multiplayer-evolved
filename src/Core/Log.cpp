@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Log.cpp
+// MultiplayerEvolved: Core/Log.cpp
 #include "Core/Log.h"
 
 #include <atomic>
@@ -11,7 +11,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
-namespace fe::log {
+namespace mpe::log {
 namespace {
 
 std::mutex        g_mutex;
@@ -144,4 +144,4 @@ void Write(Level level, std::string_view category, std::string_view message) {
     }
 }
 
-} // namespace fe::log
+} // namespace mpe::log

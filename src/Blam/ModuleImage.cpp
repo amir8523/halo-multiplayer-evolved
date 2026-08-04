@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/ModuleImage.cpp
-#define FE_LOG_CATEGORY "Blam.Module"
+// MultiplayerEvolved: Blam/ModuleImage.cpp
+#define MPE_LOG_CATEGORY "Blam.Module"
 
 #include "Blam/ModuleImage.h"
 
@@ -11,7 +11,7 @@
 
 #include <format>
 
-namespace fe::blam {
+namespace mpe::blam {
 namespace {
 
 /// Sections that may hold NUL terminated string literals. The Blam debug
@@ -99,10 +99,10 @@ Expected<ModuleImage> ModuleImage::FromMappedImage(std::uintptr_t base, std::str
         return Error{ErrorCode::SectionNotFound, "module has no mapped sections"};
     }
 
-    FE_LOG_INFO("attached to {} at 0x{:X} ({} sections, image size {} bytes)",
+    MPE_LOG_INFO("attached to {} at 0x{:X} ({} sections, image size {} bytes)",
                 image.name_, image.base_, image.sections_.size(), image.size_);
     for (const Section& s : image.sections_) {
-        FE_LOG_DEBUG("  section {:<8} 0x{:X}..0x{:X} ({} bytes)", s.name, s.begin,
+        MPE_LOG_DEBUG("  section {:<8} 0x{:X}..0x{:X} ({} bytes)", s.name, s.begin,
                      s.end, s.bytes.size());
     }
 
@@ -195,4 +195,4 @@ bool ModuleImage::TryReadPointer(std::uintptr_t address, std::uintptr_t& out) co
     return false;
 }
 
-} // namespace fe::blam
+} // namespace mpe::blam

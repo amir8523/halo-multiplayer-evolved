@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/GameBuild.h
+// MultiplayerEvolved: Core/GameBuild.h
 //
 // Identity of the running game build.
 //
@@ -16,7 +16,7 @@
 
 #include <string>
 
-namespace fe {
+namespace mpe {
 
 /// Version string of the running executable, read once and cached.
 ///
@@ -29,4 +29,4 @@ namespace fe {
 /// own data files, which install alongside the game binary.
 [[nodiscard]] const std::string& ExecutableDirectory();
 
-} // namespace fe
+} // namespace mpe

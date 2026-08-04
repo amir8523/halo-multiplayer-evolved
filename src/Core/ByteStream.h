@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/ByteStream.h
+// MultiplayerEvolved: Core/ByteStream.h
 //
 // Bounds checked little endian binary serialization.
 //
@@ -25,7 +25,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace fe {
+namespace mpe {
 
 /// Upper bound for any length prefixed string on the wire. Anything longer is
 /// a protocol violation, not a large name.
@@ -227,4 +227,4 @@ private:
     bool                       failed_{false};
 };
 
-} // namespace fe
+} // namespace mpe

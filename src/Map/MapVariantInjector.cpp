@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Map/MapVariantInjector.cpp
-#define FE_LOG_CATEGORY "Map.Injector"
+// MultiplayerEvolved: Map/MapVariantInjector.cpp
+#define MPE_LOG_CATEGORY "Map.Injector"
 
 #include "Map/MapVariantInjector.h"
 
@@ -11,7 +11,7 @@
 #include <format>
 #include <unordered_set>
 
-namespace fe::map {
+namespace mpe::map {
 namespace {
 
 /// Converts a yaw in degrees to a quaternion about the vertical axis. Spawn
@@ -218,10 +218,10 @@ Expected<InjectionReport> MapVariantInjector::Apply(const MapVariant& variant) {
     // Anything from a previous apply goes first, so two applies in a row cannot
     // stack layouts.
     Revert();
-    FE_TRY_EXPECTED(engine_.ClearSandbox());
+    MPE_TRY_EXPECTED(engine_.ClearSandbox());
 
     // Phase 1. Nothing is placed until every key is known to resolve.
-    FE_TRY_EXPECTED(ResolveAllPaletteKeys(variant));
+    MPE_TRY_EXPECTED(ResolveAllPaletteKeys(variant));
 
     InjectionReport report;
 
@@ -239,7 +239,7 @@ Expected<InjectionReport> MapVariantInjector::Apply(const MapVariant& variant) {
     for (const ObjectPlacement& object : variant.objects) {
         if (const Result placed = place_or_unwind(PlacementFor(object), report.objects_placed);
             !placed.ok()) {
-            FE_LOG_ERROR("placing object {} ('{}') failed: {}", object.id, object.palette_key,
+            MPE_LOG_ERROR("placing object {} ('{}') failed: {}", object.id, object.palette_key,
                          placed.message());
             Revert();
             return Error{placed.error()};
@@ -248,7 +248,7 @@ Expected<InjectionReport> MapVariantInjector::Apply(const MapVariant& variant) {
     for (const SpawnPoint& spawn : variant.spawns) {
         if (const Result placed = place_or_unwind(PlacementFor(spawn), report.markers_placed);
             !placed.ok()) {
-            FE_LOG_ERROR("placing spawn {} failed: {}", spawn.id, placed.message());
+            MPE_LOG_ERROR("placing spawn {} failed: {}", spawn.id, placed.message());
             Revert();
             return Error{placed.error()};
         }
@@ -256,7 +256,7 @@ Expected<InjectionReport> MapVariantInjector::Apply(const MapVariant& variant) {
     for (const Objective& objective : variant.objectives) {
         if (const Result placed = place_or_unwind(PlacementFor(objective), report.markers_placed);
             !placed.ok()) {
-            FE_LOG_ERROR("placing objective {} failed: {}", objective.id, placed.message());
+            MPE_LOG_ERROR("placing objective {} failed: {}", objective.id, placed.message());
             Revert();
             return Error{placed.error()};
         }
@@ -264,7 +264,7 @@ Expected<InjectionReport> MapVariantInjector::Apply(const MapVariant& variant) {
     for (const BoundaryVolume& boundary : variant.boundaries) {
         if (const Result placed = place_or_unwind(PlacementFor(boundary), report.volumes_placed);
             !placed.ok()) {
-            FE_LOG_ERROR("placing boundary {} failed: {}", boundary.id, placed.message());
+            MPE_LOG_ERROR("placing boundary {} failed: {}", boundary.id, placed.message());
             Revert();
             return Error{placed.error()};
         }
@@ -282,7 +282,7 @@ Expected<InjectionReport> MapVariantInjector::Apply(const MapVariant& variant) {
             "no boundary volumes are defined, so players can leave the intended play space");
     }
 
-    FE_LOG_INFO("applied map '{}': {} object(s), {} marker(s), {} volume(s)", variant.name,
+    MPE_LOG_INFO("applied map '{}': {} object(s), {} marker(s), {} volume(s)", variant.name,
                 report.objects_placed, report.markers_placed, report.volumes_placed);
     return report;
 }
@@ -302,12 +302,12 @@ void MapVariantInjector::Revert() {
     }
     if (failures > 0) {
         // Not fatal: ClearSandbox at the start of the next apply is the backstop.
-        FE_LOG_WARN("{} of {} sandbox object(s) could not be despawned", failures,
+        MPE_LOG_WARN("{} of {} sandbox object(s) could not be despawned", failures,
                     spawned_.size());
     } else {
-        FE_LOG_DEBUG("reverted {} sandbox object(s)", spawned_.size());
+        MPE_LOG_DEBUG("reverted {} sandbox object(s)", spawned_.size());
     }
     spawned_.clear();
 }
 
-} // namespace fe::map
+} // namespace mpe::map

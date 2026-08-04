@@ -1,5 +1,5 @@
 {
-  // ForgeEvolved symbol descriptor.
+  // MultiplayerEvolved symbol descriptor.
   //
   // Named after the game build string reported by the executable's version
   // resource, so the mod picks the right descriptor automatically. Supporting a new

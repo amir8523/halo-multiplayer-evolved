@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Log.h
+// MultiplayerEvolved: Core/Log.h
 //
 // Thread safe, allocation-light logging with a file sink and an optional
 // debugger sink.
@@ -15,7 +15,7 @@
 #include <string>
 #include <string_view>
 
-namespace fe::log {
+namespace mpe::log {
 
 enum class Level : int {
     Trace = 0,
@@ -57,21 +57,21 @@ void WriteFormatted(Level level, std::string_view category,
     Write(level, category, std::format(fmt, std::forward<Args>(args)...));
 }
 
-} // namespace fe::log
+} // namespace mpe::log
 
-// Each translation unit defines FE_LOG_CATEGORY before including this header,
+// Each translation unit defines MPE_LOG_CATEGORY before including this header,
 // keeping call sites free of a repeated literal.
-#ifndef FE_LOG_CATEGORY
-#define FE_LOG_CATEGORY "ForgeEvolved"
+#ifndef MPE_LOG_CATEGORY
+#define MPE_LOG_CATEGORY "MultiplayerEvolved"
 #endif
 
-#define FE_LOG_TRACE(...) \
-    ::fe::log::WriteFormatted(::fe::log::Level::Trace, FE_LOG_CATEGORY, __VA_ARGS__)
-#define FE_LOG_DEBUG(...) \
-    ::fe::log::WriteFormatted(::fe::log::Level::Debug, FE_LOG_CATEGORY, __VA_ARGS__)
-#define FE_LOG_INFO(...) \
-    ::fe::log::WriteFormatted(::fe::log::Level::Info,  FE_LOG_CATEGORY, __VA_ARGS__)
-#define FE_LOG_WARN(...) \
-    ::fe::log::WriteFormatted(::fe::log::Level::Warn,  FE_LOG_CATEGORY, __VA_ARGS__)
-#define FE_LOG_ERROR(...) \
-    ::fe::log::WriteFormatted(::fe::log::Level::Error, FE_LOG_CATEGORY, __VA_ARGS__)
+#define MPE_LOG_TRACE(...) \
+    ::mpe::log::WriteFormatted(::mpe::log::Level::Trace, MPE_LOG_CATEGORY, __VA_ARGS__)
+#define MPE_LOG_DEBUG(...) \
+    ::mpe::log::WriteFormatted(::mpe::log::Level::Debug, MPE_LOG_CATEGORY, __VA_ARGS__)
+#define MPE_LOG_INFO(...) \
+    ::mpe::log::WriteFormatted(::mpe::log::Level::Info,  MPE_LOG_CATEGORY, __VA_ARGS__)
+#define MPE_LOG_WARN(...) \
+    ::mpe::log::WriteFormatted(::mpe::log::Level::Warn,  MPE_LOG_CATEGORY, __VA_ARGS__)
+#define MPE_LOG_ERROR(...) \
+    ::mpe::log::WriteFormatted(::mpe::log::Level::Error, MPE_LOG_CATEGORY, __VA_ARGS__)

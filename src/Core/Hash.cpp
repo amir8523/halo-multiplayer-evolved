@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Hash.cpp
+// MultiplayerEvolved: Core/Hash.cpp
 #include "Core/Hash.h"
 
 #include <bit>
 #include <cstring>
 
-namespace fe::hash {
+namespace mpe::hash {
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -228,4 +228,4 @@ Digest256 Sha256::Compute(std::string_view text) noexcept {
     return sha.Finalize();
 }
 
-} // namespace fe::hash
+} // namespace mpe::hash

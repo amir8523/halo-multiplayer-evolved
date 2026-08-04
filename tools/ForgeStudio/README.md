@@ -1,6 +1,6 @@
 # Forge Studio
 
-External map editor for ForgeEvolved. Authors `.fmap.json`, the format documented
+External map editor for MultiplayerEvolved. Authors `.fmap.json`, the format documented
 in [../../docs/02-MAP-FORMAT.md](../../docs/02-MAP-FORMAT.md).
 
 ## Why external rather than in game
@@ -64,7 +64,7 @@ free:
 
 ### Validation is the game's validation
 
-`ValidationBridge` calls the same `fe::map::Validate` the game runs, through a
+`ValidationBridge` calls the same `mpe::map::Validate` the game runs, through a
 small C export from the mod DLL. Reimplementing the rules in C# would guarantee
 they drift, and the failure mode of drift is a map that passes in the editor and
 is rejected at launch.
@@ -81,8 +81,8 @@ mistake into an impossible one.
 
 ### Live preview
 
-Optional. When the game is running with ForgeEvolved loaded, Forge Studio writes
-the document to a scratch file and calls `FE_SelectMap`, which parses it and
+Optional. When the game is running with MultiplayerEvolved loaded, Forge Studio writes
+the document to a scratch file and calls `MPE_SelectMap`, which parses it and
 applies it through `MapVariantInjector`. Iteration becomes save then look, with no
 relaunch.
 

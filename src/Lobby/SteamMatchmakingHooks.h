@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Lobby/SteamMatchmakingHooks.h
+// MultiplayerEvolved: Lobby/SteamMatchmakingHooks.h
 //
 // ILobbyBackend implemented on ISteamMatchmaking and ISteamFriends.
 //
@@ -38,12 +38,12 @@
 #include "Lobby/ILobbyBackend.h"
 #include "Steam/SteamApi.h"
 
-namespace fe::lobby {
+namespace mpe::lobby {
 
 class SteamMatchmakingHooks final : public ILobbyBackend {
 public:
     /// Verifies the required Steam interfaces are live, then registers callbacks.
-    /// fe::steam::Initialize must already have succeeded.
+    /// mpe::steam::Initialize must already have succeeded.
     ///
     /// Named CreateInstance rather than Create so it is never confused with the
     /// ILobbyBackend::Create that makes a lobby.
@@ -164,4 +164,4 @@ private:
     std::deque<Event>  pending_; ///< Guarded by queue_mutex_.
 };
 
-} // namespace fe::lobby
+} // namespace mpe::lobby

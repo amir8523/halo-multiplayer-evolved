@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Steam/SteamTypes.h
+// MultiplayerEvolved: Steam/SteamTypes.h
 //
 // Steamworks ABI declarations, independent of the Steamworks SDK.
 //
@@ -43,7 +43,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace fe::steam {
+namespace mpe::steam {
 
 // ---------------------------------------------------------------------------
 // Scalars and handles
@@ -429,4 +429,4 @@ static_assert(sizeof(GameRichPresenceJoinRequestedCallback) == 264,
 
 #pragma pack(pop)
 
-} // namespace fe::steam
+} // namespace mpe::steam

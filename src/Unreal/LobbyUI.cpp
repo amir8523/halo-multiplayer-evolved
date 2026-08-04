@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/LobbyUI.cpp
-#define FE_LOG_CATEGORY "Unreal.LobbyUI"
+// MultiplayerEvolved: Unreal/LobbyUI.cpp
+#define MPE_LOG_CATEGORY "Unreal.LobbyUI"
 
 #include "Unreal/LobbyUI.h"
 
@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace fe::unreal {
+namespace mpe::unreal {
 namespace {
 
 /// The design is laid out against this size and scaled by the canvas, so it holds its
@@ -62,6 +62,9 @@ constexpr LinearColour kSlotMark   = {0.294F, 0.780F, 0.886F, 0.35F};
 constexpr LinearColour kGood       = {0.400F, 0.850F, 0.450F, 1.0F};
 constexpr LinearColour kBad        = {0.910F, 0.380F, 0.350F, 1.0F};
 constexpr LinearColour kWarn       = {0.960F, 0.760F, 0.300F, 1.0F};
+/// Barely there. The status panel reports on the session rather than being part of the
+/// layout, so it should read over the scene instead of punching a hole in it.
+constexpr LinearColour kStatusPanel = {0.020F, 0.040F, 0.055F, 0.45F};
 
 /// The bars drawn behind the two mode buttons. Selection is shown by making one visible
 /// and the other not, so choosing a mode costs a visibility change rather than a rebuild.
@@ -904,7 +907,7 @@ void FoldMenuAway(const LobbyUIContext& context) {
         SetWidgetVisibility(context, widget, kCollapsed);
         g_folded.push_back(widget);
     }
-    FE_LOG_INFO("main menu 0x{:X} collapsed whole, with {} widget(s) beside it",
+    MPE_LOG_INFO("main menu 0x{:X} collapsed whole, with {} widget(s) beside it",
                 context.outer, context.also_fold.size());
 }
 
@@ -917,7 +920,7 @@ void FoldMenuAway(const LobbyUIContext& context) {
 void FocusLobby(const LobbyUIContext& context, std::uintptr_t widget) {
     if (context.set_input_mode_ui == 0 || context.get_player_controller == 0 ||
         context.widget_library == 0 || widget == 0) {
-        FE_LOG_WARN("input cannot be given to the lobby: focus functions were not resolved");
+        MPE_LOG_WARN("input cannot be given to the lobby: focus functions were not resolved");
         return;
     }
 
@@ -932,7 +935,7 @@ void FocusLobby(const LobbyUIContext& context, std::uintptr_t widget) {
     if (!CallFunction(context.gameplay_statics, context.get_player_controller, &controller)
              .ok() ||
         controller.return_value == 0) {
-        FE_LOG_WARN("no player controller to take input from");
+        MPE_LOG_WARN("no player controller to take input from");
         return;
     }
 
@@ -955,7 +958,7 @@ void FocusLobby(const LobbyUIContext& context, std::uintptr_t widget) {
     if (context.set_keyboard_focus != 0) {
         (void)CallFunction(widget, context.set_keyboard_focus, nullptr);
     }
-    FE_LOG_INFO("input focus moved to the lobby (controller 0x{:X})",
+    MPE_LOG_INFO("input focus moved to the lobby (controller 0x{:X})",
                 controller.return_value);
 }
 
@@ -964,7 +967,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
         SetWidgetVisibility(context, widget, kVisible);
     }
     if (!g_folded.empty()) {
-        FE_LOG_INFO("restored {} main menu widget(s)", g_folded.size());
+        MPE_LOG_INFO("restored {} main menu widget(s)", g_folded.size());
     }
     g_folded.clear();
 }
@@ -974,9 +977,6 @@ void UnfoldMenu(const LobbyUIContext& context) {
     constexpr std::uintptr_t kHeightOverride  = 0x194;
     constexpr std::uintptr_t kOverrideFlags   = 0x1B0;
     constexpr std::uint8_t   kWidthAndHeight  = 0x03; // bOverride_Width | bOverride_Height
-    constexpr std::uintptr_t kSlotHorizontal  = 0x50;
-    constexpr std::uintptr_t kSlotVertical    = 0x51;
-    constexpr std::uint8_t   kFill            = 0;
 
     struct SpawnParameters {
         std::uintptr_t object_class;
@@ -995,7 +995,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
 
     const std::uintptr_t frame = spawn(context.sizebox_class);
     if (frame == 0) {
-        FE_LOG_WARN("could not create the sizing frame");
+        MPE_LOG_WARN("could not create the sizing frame");
         return 0;
     }
     const float width  = kDesignWidth;
@@ -1007,7 +1007,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
 
     const std::uintptr_t canvas = spawn(context.canvas_class);
     if (canvas == 0) {
-        FE_LOG_WARN("could not create the lobby canvas");
+        MPE_LOG_WARN("could not create the lobby canvas");
         return 0;
     }
 
@@ -1020,7 +1020,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
     inner.content = canvas;
     if (context.add_child == 0 ||
         !CallFunction(frame, context.add_child, &inner).ok() || inner.return_value == 0) {
-        FE_LOG_WARN("the sizing frame did not accept the canvas");
+        MPE_LOG_WARN("the sizing frame did not accept the canvas");
         return 0;
     }
 
@@ -1031,13 +1031,13 @@ void UnfoldMenu(const LobbyUIContext& context) {
     // to one with the game still visible around it.
     const std::uintptr_t scaler = spawn(context.scalebox_class);
     if (scaler == 0) {
-        FE_LOG_WARN("could not create the scaling box");
+        MPE_LOG_WARN("could not create the scaling box");
         return 0;
     }
     AddParameters scaled{};
     scaled.content = frame;
     if (!CallFunction(scaler, context.add_child, &scaled).ok() || scaled.return_value == 0) {
-        FE_LOG_WARN("the scaling box did not accept the lobby frame");
+        MPE_LOG_WARN("the scaling box did not accept the lobby frame");
         return 0;
     }
     // EStretch::ScaleToFit keeps the design's proportions and fits it to the viewport.
@@ -1068,7 +1068,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
         context.add_to_viewport == 0 ||
         !CallFunction(context.widget_library, context.create_widget, &created).ok() ||
         created.return_value == 0) {
-        FE_LOG_WARN("could not create the widget that carries the lobby into the viewport");
+        MPE_LOG_WARN("could not create the widget that carries the lobby into the viewport");
         return 0;
     }
 
@@ -1076,7 +1076,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
     if (!memory::GuardedRead(created.return_value + 0x268, &host_tree, sizeof(host_tree)) ||
         host_tree == 0 ||
         !memory::GuardedWrite(host_tree + 0x30, &scaler, sizeof(scaler))) {
-        FE_LOG_WARN("the host widget 0x{:X} would not take the lobby as its root",
+        MPE_LOG_WARN("the host widget 0x{:X} would not take the lobby as its root",
                     created.return_value);
         return 0;
     }
@@ -1087,7 +1087,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
     };
     ViewportParameters viewport{1000};
     if (!CallFunction(created.return_value, context.add_to_viewport, &viewport).ok()) {
-        FE_LOG_WARN("the lobby host was not accepted by the viewport");
+        MPE_LOG_WARN("the lobby host was not accepted by the viewport");
         return 0;
     }
     g_open_host_widget = created.return_value;
@@ -1107,7 +1107,7 @@ void UnfoldMenu(const LobbyUIContext& context) {
         (void)CallFunction(context.layout_library, context.get_viewport_size, &viewport_size);
     }
 
-    FE_LOG_INFO("lobby hosted in the viewport: host 0x{:X}, scaler 0x{:X}, frame 0x{:X} "
+    MPE_LOG_INFO("lobby hosted in the viewport: host 0x{:X}, scaler 0x{:X}, frame 0x{:X} "
                 "({}x{} design), canvas 0x{:X}; viewport is {:.0f}x{:.0f}",
                 created.return_value, scaler, frame, static_cast<int>(width),
                 static_cast<int>(height), canvas, viewport_size.x, viewport_size.y);
@@ -1138,7 +1138,7 @@ Result ProbeLobbyUI(const LobbyUIContext& context) {
     }
     (void)builder.Text(canvas, 240.0F, 240.0F, 800.0F, 60.0F, "FORGE EVOLVED UI PROBE",
                        {1.0F, 1.0F, 1.0F, 1.0F}, 40.0F);
-    FE_LOG_INFO("probe drawn: a red rectangle with white text should now be on screen");
+    MPE_LOG_INFO("probe drawn: a red rectangle with white text should now be on screen");
     return Result::Success();
 }
 
@@ -1180,7 +1180,7 @@ void MeasureLobby(const LobbyUIContext& context) {
     }
     // Read a frame after building, because desired size is whatever the last layout pass
     // cached and a widget created this frame has not been through one yet.
-    FE_LOG_INFO("lobby measured: frame {:.0f}x{:.0f}, canvas {:.0f}x{:.0f}", frame_size.x,
+    MPE_LOG_INFO("lobby measured: frame {:.0f}x{:.0f}, canvas {:.0f}x{:.0f}", frame_size.x,
                 frame_size.y, canvas_size.x, canvas_size.y);
 }
 
@@ -1380,20 +1380,20 @@ Result ResolveLobbyStatics(const ObjectArray& objects, LobbyUIContext& out_conte
         memory::GuardedRead(font_example[best_font] + 0x1D0, context.font_template.data(),
                             context.font_template.size())) {
         context.has_font = true;
-        FE_LOG_INFO("font asset 0x{:X} taken from text block 0x{:X}; {} of {} block(s) use "
+        MPE_LOG_INFO("font asset 0x{:X} taken from text block 0x{:X}; {} of {} block(s) use "
                     "it, out of {} distinct font(s)",
                     best_font, font_example[best_font], best_uses, text_blocks.size(),
                     font_uses.size());
     } else {
-        FE_LOG_WARN("no text block carried a font; the lobby will use the engine default "
+        MPE_LOG_WARN("no text block carried a font; the lobby will use the engine default "
                     "typeface ({} block(s) considered)", text_blocks.size());
     }
     (void)game_widget_instances;
 
     std::sort(game_widgets.begin(), game_widgets.end());
-    FE_LOG_INFO("the game ships {} widget class(es):", game_widgets.size());
+    MPE_LOG_INFO("the game ships {} widget class(es):", game_widgets.size());
     for (const std::string& widget : game_widgets) {
-        FE_LOG_INFO("  {}", widget);
+        MPE_LOG_INFO("  {}", widget);
     }
 
     if (!context.StaticsComplete()) {
@@ -1470,7 +1470,7 @@ Result ResolveLobbyUI(const ObjectArray& objects, LobbyUIContext& out_context) {
         context.root_class = object.class_name;
         return false;
     });
-    FE_LOG_INFO("menu root is 0x{:X} ({})", context.root_canvas,
+    MPE_LOG_INFO("menu root is 0x{:X} ({})", context.root_canvas,
                 context.root_class.empty() ? "unknown class" : context.root_class);
 
     out_context = context;
@@ -1511,11 +1511,14 @@ Result BuildLobbyUI(const LobbyUIContext& context, const LobbyView& view,
 
     // Status, top right. Built here rather than per tab, because it describes the session
     // rather than whichever tab happens to be showing.
-    (void)builder.Panel(root, 1560.0F, 24.0F, 320.0F, 104.0F, kPanel);
+    (void)builder.Panel(root, 1544.0F, 20.0F, 336.0F, 116.0F, kStatusPanel);
+    // A rule down the left edge, because a translucent panel over a starfield has no edge
+    // of its own to read against and simply disappears.
+    (void)builder.Panel(root, 1544.0F, 20.0F, 3.0F, 116.0F, kAccent);
     for (std::size_t line = 0; line < std::size(g_status_line); ++line) {
         g_status_line[line] =
-            builder.Text(root, 1576.0F, 36.0F + static_cast<float>(line) * 30.0F, 300.0F,
-                         24.0F, "", kTextDim, 16.0F);
+            builder.Text(root, 1562.0F, 32.0F + static_cast<float>(line) * 34.0F, 310.0F,
+                         30.0F, "", kText, 19.0F);
     }
 
     // Tabs, as real buttons so they can be pressed rather than only looked at.
@@ -1550,7 +1553,7 @@ Result BuildLobbyUI(const LobbyUIContext& context, const LobbyView& view,
 
     out_root          = root;
     g_open_lobby_root = root;
-    FE_LOG_INFO("lobby UI built: host tab 0x{:X}, browse tab 0x{:X}, {} control(s)",
+    MPE_LOG_INFO("lobby UI built: host tab 0x{:X}, browse tab 0x{:X}, {} control(s)",
                 g_host_tab, g_browse_tab, out_controls.size());
     return Result::Success();
 }
@@ -1572,7 +1575,7 @@ void ShowLobbyUI(const LobbyUIContext& context, bool visible) {
         // opened and every job fell back to the slow path: that is the delay on changing a
         // filter, a mode or a map. The lobby is what is alive now, so the lobby carries it.
         if (const Result pump = InstallGameThreadPump(g_open_host_widget); !pump.ok()) {
-            FE_LOG_WARN("the lobby could not take over the game thread pump: {}",
+            MPE_LOG_WARN("the lobby could not take over the game thread pump: {}",
                         pump.message());
         }
         return;
@@ -1599,7 +1602,7 @@ void SetLobbyTab(const LobbyUIContext& context, bool browsing) {
                         browsing ? kCollapsed : kSelfHitTestInvisible);
     SetWidgetVisibility(context, g_browse_tab,
                         browsing ? kSelfHitTestInvisible : kCollapsed);
-    FE_LOG_INFO("lobby tab is now {} (host 0x{:X}, browse 0x{:X}, setter 0x{:X})",
+    MPE_LOG_INFO("lobby tab is now {} (host 0x{:X}, browse 0x{:X}, setter 0x{:X})",
                 browsing ? "BROWSE" : "HOST", g_host_tab, g_browse_tab,
                 context.set_visibility);
 }
@@ -1672,15 +1675,23 @@ void SetLobbyServers(const LobbyUIContext& context, const std::vector<ServerEntr
 void SetLobbyStatus(const LobbyUIContext& context, const LobbyStatus& status) {
     const Builder builder(context);
 
+    static bool s_reported = false;
+    if (!s_reported) {
+        s_reported = true;
+        MPE_LOG_INFO("status panel first write: lines 0x{:X} 0x{:X} 0x{:X}, net={}, '{}'",
+                    g_status_line[0], g_status_line[1], g_status_line[2], status.online,
+                    status.version);
+    }
+
     builder.SetText(g_status_line[0], status.online ? "NET: ONLINE" : "NET: OFFLINE");
-    builder.SetTextAppearance(g_status_line[0], status.online ? kGood : kBad, 16.0F);
+    builder.SetTextAppearance(g_status_line[0], status.online ? kGood : kBad, 19.0F);
 
     builder.SetText(g_status_line[1], std::format("SESSION: {}", status.session));
-    builder.SetTextAppearance(g_status_line[1], status.invitable ? kGood : kTextDim, 16.0F);
+    builder.SetTextAppearance(g_status_line[1], status.invitable ? kGood : kText, 19.0F);
 
     builder.SetText(g_status_line[2], status.version);
     builder.SetTextAppearance(g_status_line[2],
-                              status.update_available ? kWarn : kTextDim, 16.0F);
+                              status.update_available ? kWarn : kText, 19.0F);
 
     for (const std::uintptr_t line : g_status_line) {
         builder.SetVisibilityOf(line, kHitTestInvisible);
@@ -1754,4 +1765,4 @@ std::string ReadServerName(const LobbyUIContext& context) {
 
 bool LobbyIsBuilt() { return g_open_host_widget != 0 && g_open_lobby_root != 0; }
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

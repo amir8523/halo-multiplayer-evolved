@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Debug/AccessTrap.cpp
-#define FE_LOG_CATEGORY "Debug.Trap"
+// MultiplayerEvolved: Debug/AccessTrap.cpp
+#define MPE_LOG_CATEGORY "Debug.Trap"
 
 #include "Debug/AccessTrap.h"
 
@@ -17,7 +17,7 @@
 #include <mutex>
 #include <unordered_map>
 
-namespace fe::debugtrap {
+namespace mpe::debugtrap {
 namespace {
 
 /// Hardware supports exactly four watchpoints.
@@ -329,7 +329,7 @@ Result Arm(std::uintptr_t address, std::size_t length, Condition condition, std:
     }
 
     const std::size_t threads = ApplyToAllThreads();
-    FE_LOG_INFO("armed watchpoint {} on 0x{:X} ({} byte{}, {}) across {} thread(s)", chosen,
+    MPE_LOG_INFO("armed watchpoint {} on 0x{:X} ({} byte{}, {}) across {} thread(s)", chosen,
                 address, length, length == 1 ? "" : "s", description, threads);
 
     if (threads == 0) {
@@ -350,7 +350,7 @@ void DisarmAll() {
         }
     }
     const std::size_t threads = ApplyToAllThreads();
-    FE_LOG_INFO("disarmed all watchpoints across {} thread(s)", threads);
+    MPE_LOG_INFO("disarmed all watchpoints across {} thread(s)", threads);
 }
 
 void RefreshThreads() {
@@ -395,11 +395,11 @@ std::size_t ArmedCount() {
         std::count_if(g_slots.begin(), g_slots.end(), [](const Slot& s) { return s.active; }));
 }
 
-} // namespace fe::debugtrap
+} // namespace mpe::debugtrap
 
 
 
-namespace fe::debugtrap {
+namespace mpe::debugtrap {
 
 bool OverBudget() {
     return g_over_budget.load(std::memory_order_acquire);
@@ -409,4 +409,4 @@ void SetHitCallback(HitCallback callback) {
     g_hit_callback.store(callback, std::memory_order_release);
 }
 
-} // namespace fe::debugtrap
+} // namespace mpe::debugtrap

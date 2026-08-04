@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/GameThread.h
+// MultiplayerEvolved: Unreal/GameThread.h
 //
 // Runs work on the game thread, and calls Unreal functions.
 //
@@ -41,7 +41,7 @@
 #include "Unreal/ObjectArray.h"
 #include "Unreal/Reflection.h"
 
-namespace fe::unreal {
+namespace mpe::unreal {
 
 /// What detection found, for logging and for the self test.
 struct CallLayout {
@@ -269,4 +269,4 @@ struct MenuRow {
 [[nodiscard]] Result CallReturningInt(const ObjectArray& objects, std::string_view class_name,
                                       std::string_view function_name, int& out_value);
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

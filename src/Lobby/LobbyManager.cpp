@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Lobby/LobbyManager.cpp
-#define FE_LOG_CATEGORY "Lobby"
+// MultiplayerEvolved: Lobby/LobbyManager.cpp
+#define MPE_LOG_CATEGORY "Lobby"
 
 #include "Lobby/LobbyManager.h"
 
@@ -15,10 +15,10 @@
 #include <filesystem>
 #include <format>
 
-namespace fe::lobby {
+namespace mpe::lobby {
 namespace {
 
-using namespace fe::net;
+using namespace mpe::net;
 
 /// Wall clock in milliseconds, used only to stamp a launch so peers can log the
 /// spread between machines. Never used for simulation timing.
@@ -178,15 +178,15 @@ Result LobbyManager::HostSession(const HostOptions& options) {
                             std::format("this game build cannot be hosted yet: {}",
                                         capabilities.Describe()));
     }
-    FE_TRY(options.settings.Validate());
+    MPE_TRY(options.settings.Validate());
 
     if (options.max_players < 2 || options.max_players > 16) {
         return Result::Fail(ErrorCode::InvalidArgument,
                             std::format("max_players {} is outside 2..16", options.max_players));
     }
 
-    FE_ASSIGN_OR_RETURN(const PlatformId local_id, backend_.LocalId());
-    FE_ASSIGN_OR_RETURN(const std::string local_name, backend_.LocalDisplayName());
+    MPE_ASSIGN_OR_RETURN(const PlatformId local_id, backend_.LocalId());
+    MPE_ASSIGN_OR_RETURN(const std::string local_name, backend_.LocalDisplayName());
 
     settings_    = options.settings;
     max_players_ = options.max_players;
@@ -210,20 +210,20 @@ Result LobbyManager::HostSession(const HostOptions& options) {
     }
 
     // Configure the engine's session before any peer can connect.
-    FE_TRY(engine_.SetSessionClass(engine::SessionClass::SystemLink));
-    FE_TRY(engine_.SetSessionPrivacy(options.visibility == LobbyVisibility::Public
+    MPE_TRY(engine_.SetSessionClass(engine::SessionClass::SystemLink));
+    MPE_TRY(engine_.SetSessionPrivacy(options.visibility == LobbyVisibility::Public
                                          ? engine::SessionPrivacy::Open
                                          : options.visibility == LobbyVisibility::FriendsOnly
                                                ? engine::SessionPrivacy::FriendsOnly
                                                : engine::SessionPrivacy::InvitationOnly));
     // Our listen server designates the host explicitly. A speculative migration
     // would hand authority to a peer that is not running our transport as host.
-    FE_TRY(engine_.SetHostMigrationEnabled(false));
+    MPE_TRY(engine_.SetHostMigrationEnabled(false));
 
     ListenConfig listen;
     listen.max_clients = options.max_players - 1;
     listen.use_relay   = true;
-    FE_TRY(transport_.Listen(listen));
+    MPE_TRY(transport_.Listen(listen));
 
     const Result created = backend_.Create(options.visibility, options.max_players);
     if (!created.ok()) {
@@ -248,7 +248,7 @@ Result LobbyManager::HostSession(const HostOptions& options) {
 
     ApplyBandwidthBudget();
     TransitionTo(LobbyPhase::Creating, "Creating lobby");
-    FE_LOG_INFO("hosting: mode {}, scenario '{}', up to {} players",
+    MPE_LOG_INFO("hosting: mode {}, scenario '{}', up to {} players",
                 engine::ToString(settings_.mode), settings_.scenario, options.max_players);
     return Result::Success();
 }
@@ -265,11 +265,11 @@ Result LobbyManager::JoinSession(LobbyId lobby) {
                                         capabilities.Describe()));
     }
 
-    FE_ASSIGN_OR_RETURN(const PlatformId local_id, backend_.LocalId());
+    MPE_ASSIGN_OR_RETURN(const PlatformId local_id, backend_.LocalId());
     local_id_ = local_id;
     is_host_  = false;
 
-    FE_TRY(backend_.Join(lobby));
+    MPE_TRY(backend_.Join(lobby));
     TransitionTo(LobbyPhase::Joining, "Joining lobby");
     return Result::Success();
 }
@@ -278,7 +278,7 @@ void LobbyManager::LeaveSession() {
     if (phase_ == LobbyPhase::Idle) {
         return;
     }
-    FE_LOG_INFO("leaving session from phase {}", ToString(phase_));
+    MPE_LOG_INFO("leaving session from phase {}", ToString(phase_));
 
     if (is_host_) {
         // Tell every client before the socket closes so they see HostShutdown
@@ -288,7 +288,7 @@ void LobbyManager::LeaveSession() {
         builder.Body().WriteU8(static_cast<std::uint8_t>(DisconnectReason::HostShutdown));
         const Result sent = transport_.Broadcast(Channel::Control, packet, SendMode::Reliable);
         if (!sent.ok()) {
-            FE_LOG_DEBUG("goodbye broadcast failed: {}", sent.message());
+            MPE_LOG_DEBUG("goodbye broadcast failed: {}", sent.message());
         }
         transport_.Flush();
     }
@@ -298,10 +298,10 @@ void LobbyManager::LeaveSession() {
     if (phase_ == LobbyPhase::InMatch || phase_ == LobbyPhase::Loading ||
         phase_ == LobbyPhase::PostMatch) {
         if (const Result ended = engine_.EndMatch(); !ended.ok()) {
-            FE_LOG_WARN("EndMatch during teardown failed: {}", ended.message());
+            MPE_LOG_WARN("EndMatch during teardown failed: {}", ended.message());
         }
         if (const Result returned = engine_.ReturnToFrontEnd(); !returned.ok()) {
-            FE_LOG_WARN("ReturnToFrontEnd during teardown failed: {}", returned.message());
+            MPE_LOG_WARN("ReturnToFrontEnd during teardown failed: {}", returned.message());
         }
     }
 
@@ -346,11 +346,11 @@ Result LobbyManager::SetLocalReady(bool ready) {
     std::vector<std::byte> packet;
     PacketBuilder builder(packet, MessageType::ReadyStateChange, Channel::Lobby);
     builder.Body().WriteBool(ready);
-    FE_TRY(SendTo(host_peer_, MessageType::ReadyStateChange, packet, SendMode::Reliable));
+    MPE_TRY(SendTo(host_peer_, MessageType::ReadyStateChange, packet, SendMode::Reliable));
 
     // Also published as lobby member data so the host sees it even if the
     // transport connection is briefly disturbed.
-    FE_TRY(backend_.SetMemberData(keys::kMemberReady, ready ? "1" : "0"));
+    MPE_TRY(backend_.SetMemberData(keys::kMemberReady, ready ? "1" : "0"));
     return Result::Success();
 }
 
@@ -372,7 +372,7 @@ Result LobbyManager::SendChat(std::string_view text) {
     if (is_host_) {
         // The host is the relay: it echoes to everyone including itself so the
         // local view and the remote view are produced by the same code path.
-        FE_TRY(transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable));
+        MPE_TRY(transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable));
         sink_.OnChatMessage(local_id_, "", body.text);
         return Result::Success();
     }
@@ -415,7 +415,7 @@ Result LobbyManager::UpdateMatchSettings(const engine::MatchSettings& settings) 
         return Result::Fail(ErrorCode::InvalidState,
                             "settings can only change while the lobby is open");
     }
-    FE_TRY(settings.Validate());
+    MPE_TRY(settings.Validate());
 
     settings_ = settings;
     // Preserve the seed across a settings edit so the host cannot accidentally
@@ -428,7 +428,7 @@ Result LobbyManager::UpdateMatchSettings(const engine::MatchSettings& settings) 
     if (const Result published =
             backend_.SetLobbyData(keys::kGameMode, engine::ToString(settings_.mode));
         !published.ok()) {
-        FE_LOG_WARN("publishing game mode to lobby metadata failed: {}", published.message());
+        MPE_LOG_WARN("publishing game mode to lobby metadata failed: {}", published.message());
     }
     MarkDirty();
     return Result::Success();
@@ -443,7 +443,7 @@ Result LobbyManager::SelectMapVariant(std::string_view path) {
                             "the map can only change while the lobby is open");
     }
 
-    FE_TRY(LoadSelectedMap(path));
+    MPE_TRY(LoadSelectedMap(path));
 
     // Every client's copy is now stale. Clear their flags and push the new
     // manifest; a client cannot ready up again until it holds the new map.
@@ -457,7 +457,7 @@ Result LobbyManager::SelectMapVariant(std::string_view path) {
     if (phase_ == LobbyPhase::Countdown) {
         const Result cancelled = CancelCountdown("the host changed the map");
         if (!cancelled.ok()) {
-            FE_LOG_WARN("cancelling the countdown after a map change failed: {}",
+            MPE_LOG_WARN("cancelling the countdown after a map change failed: {}",
                         cancelled.message());
         }
     }
@@ -467,7 +467,7 @@ Result LobbyManager::SelectMapVariant(std::string_view path) {
             continue;
         }
         if (const Result started = BeginMapTransferTo(player.peer); !started.ok()) {
-            FE_LOG_WARN("starting map transfer to {} failed: {}", player.platform_id,
+            MPE_LOG_WARN("starting map transfer to {} failed: {}", player.platform_id,
                         started.message());
         }
     }
@@ -489,7 +489,7 @@ Result LobbyManager::StartCountdown() {
     if (players_.size() < 2) {
         return Result::Fail(ErrorCode::InvalidState, "at least one other player is required");
     }
-    FE_TRY(settings_.Validate());
+    MPE_TRY(settings_.Validate());
 
     // Everyone must be ready and hold the map. Reported specifically so the host
     // knows who to wait for instead of seeing a generic refusal.
@@ -525,7 +525,7 @@ Result LobbyManager::CancelCountdown(std::string_view reason) {
     countdown_remaining_ = 0.0;
     BroadcastCountdown(0, true, reason);
     TransitionTo(LobbyPhase::Hosting, std::format("Countdown cancelled: {}", reason));
-    FE_LOG_INFO("countdown cancelled: {}", reason);
+    MPE_LOG_INFO("countdown cancelled: {}", reason);
     return Result::Success();
 }
 
@@ -560,11 +560,11 @@ Result LobbyManager::EndMatch() {
     builder.Body().WriteU8(0); // reason: host ended the match
     if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
         !sent.ok()) {
-        FE_LOG_WARN("MatchEnded broadcast failed: {}", sent.message());
+        MPE_LOG_WARN("MatchEnded broadcast failed: {}", sent.message());
     }
     transport_.Flush();
 
-    FE_TRY(engine_.EndMatch());
+    MPE_TRY(engine_.EndMatch());
     TransitionTo(LobbyPhase::PostMatch, "Match complete");
     return Result::Success();
 }
@@ -620,7 +620,7 @@ void LobbyManager::Tick(double delta_seconds) {
                                                          SendMode::Unreliable)
                                        : Result::Success());
         if (!sent.ok()) {
-            FE_LOG_DEBUG("keepalive send failed: {}", sent.message());
+            MPE_LOG_DEBUG("keepalive send failed: {}", sent.message());
         }
     }
 
@@ -701,7 +701,7 @@ void LobbyManager::TickCountdown(double delta_seconds) {
             const Result cancelled = CancelCountdown(
                 std::format("{} is no longer ready", player.display_name));
             if (!cancelled.ok()) {
-                FE_LOG_WARN("cancel after readiness regression failed: {}", cancelled.message());
+                MPE_LOG_WARN("cancel after readiness regression failed: {}", cancelled.message());
             }
             return;
         }
@@ -709,7 +709,7 @@ void LobbyManager::TickCountdown(double delta_seconds) {
     if (players_.size() < 2) {
         const Result cancelled = CancelCountdown("everyone else left the lobby");
         if (!cancelled.ok()) {
-            FE_LOG_WARN("cancel after roster collapse failed: {}", cancelled.message());
+            MPE_LOG_WARN("cancel after roster collapse failed: {}", cancelled.message());
         }
         return;
     }
@@ -741,7 +741,7 @@ void LobbyManager::TickCountdown(double delta_seconds) {
 
     if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
         !sent.ok()) {
-        FE_LOG_ERROR("LaunchNow broadcast failed: {}", sent.message());
+        MPE_LOG_ERROR("LaunchNow broadcast failed: {}", sent.message());
         const Result cancelled = CancelCountdown("the launch message could not be delivered");
         if (!cancelled.ok()) {
             Fault(Error{ErrorCode::TransportSendFailed, "launch failed and could not be cancelled"});
@@ -789,7 +789,7 @@ void LobbyManager::TickLoading(double delta_seconds) {
         const Result sent = SendTo(host_peer_, MessageType::LoadProgress, packet,
                                    SendMode::UnreliableSequenced);
         if (!sent.ok()) {
-            FE_LOG_DEBUG("load progress send failed: {}", sent.message());
+            MPE_LOG_DEBUG("load progress send failed: {}", sent.message());
         }
         return;
     }
@@ -807,7 +807,7 @@ void LobbyManager::TickLoading(double delta_seconds) {
     builder.Body().WriteU64(EpochMilliseconds());
     if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
         !sent.ok()) {
-        FE_LOG_ERROR("AllPeersLoaded broadcast failed: {}", sent.message());
+        MPE_LOG_ERROR("AllPeersLoaded broadcast failed: {}", sent.message());
         Fault(Error{ErrorCode::TransportSendFailed,
                     "could not tell peers to start; the match would desynchronize"});
         return;
@@ -819,7 +819,7 @@ void LobbyManager::TickLoading(double delta_seconds) {
         return;
     }
     TransitionTo(LobbyPhase::InMatch, "In match");
-    FE_LOG_INFO("match live with {} player(s)", players_.size());
+    MPE_LOG_INFO("match live with {} player(s)", players_.size());
 }
 
 // ---------------------------------------------------------------------------
@@ -833,7 +833,7 @@ void LobbyManager::OnLobbyCreated(LobbyId lobby) {
     // before committing to a transport connection.
     const auto publish = [this](const char* key, std::string_view value) {
         if (const Result result = backend_.SetLobbyData(key, value); !result.ok()) {
-            FE_LOG_WARN("publishing lobby data '{}' failed: {}", key, result.message());
+            MPE_LOG_WARN("publishing lobby data '{}' failed: {}", key, result.message());
         }
     };
     publish(keys::kGameMode, engine::ToString(settings_.mode));
@@ -846,11 +846,11 @@ void LobbyManager::OnLobbyCreated(LobbyId lobby) {
             std::format("{} on {}", engine::ToString(settings_.mode),
                         selected_map_ ? selected_map_->name : settings_.scenario));
         !presence.ok()) {
-        FE_LOG_WARN("publishing joinable presence failed: {}", presence.message());
+        MPE_LOG_WARN("publishing joinable presence failed: {}", presence.message());
     }
 
     TransitionTo(LobbyPhase::Hosting, "Lobby open");
-    FE_LOG_INFO("lobby {} created", lobby);
+    MPE_LOG_INFO("lobby {} created", lobby);
 }
 
 void LobbyManager::OnLobbyCreateFailed(const Error& error) {
@@ -872,13 +872,13 @@ void LobbyManager::OnLobbyEntered(LobbyId lobby, bool is_owner) {
     const Expected<std::string> protocol = backend_.GetLobbyData(keys::kProtocolVersion);
     if (!protocol.ok()) {
         Fault(Error{ErrorCode::LobbyUnavailable,
-                    "this lobby does not advertise ForgeEvolved; the host may not have the mod "
+                    "this lobby does not advertise MultiplayerEvolved; the host may not have the mod "
                     "installed"});
         return;
     }
     if (protocol.value() != std::to_string(net::kProtocolVersion)) {
         Fault(Error{ErrorCode::ProtocolVersionMismatch,
-                    std::format("the host runs ForgeEvolved protocol {} and this install runs {}; "
+                    std::format("the host runs MultiplayerEvolved protocol {} and this install runs {}; "
                                 "one of you needs to update",
                                 protocol.value(), net::kProtocolVersion)});
         return;
@@ -935,11 +935,11 @@ void LobbyManager::OnMemberJoined(const LobbyMember& member) {
     // Membership in the platform lobby is not membership in the match. The
     // roster entry is created when the peer completes the transport handshake,
     // which is the point at which we can actually exchange state with them.
-    FE_LOG_DEBUG("{} entered the platform lobby", member.platform_id);
+    MPE_LOG_DEBUG("{} entered the platform lobby", member.platform_id);
 }
 
 void LobbyManager::OnMemberLeft(PlatformId member, bool was_kicked) {
-    FE_LOG_DEBUG("{} left the platform lobby (kicked={})", member, was_kicked);
+    MPE_LOG_DEBUG("{} left the platform lobby (kicked={})", member, was_kicked);
 
     if (!is_host_ && pending_host_identity_.platform_id == member) {
         Fault(Error{ErrorCode::LobbyUnavailable, "the host closed the lobby"});
@@ -976,7 +976,7 @@ void LobbyManager::OnMemberDataChanged(PlatformId member) {
 }
 
 void LobbyManager::OnJoinRequested(LobbyId lobby, PlatformId inviter) {
-    FE_LOG_INFO("join requested for lobby {} via {}", lobby, inviter);
+    MPE_LOG_INFO("join requested for lobby {} via {}", lobby, inviter);
 
     if (phase_ == LobbyPhase::InMatch || phase_ == LobbyPhase::Loading ||
         phase_ == LobbyPhase::Countdown) {
@@ -1003,7 +1003,7 @@ void LobbyManager::OnPeerConnected(PeerHandle peer, const PeerIdentity& identity
     if (is_host_) {
         // The roster entry waits for HandshakeRequest, which is what carries the
         // client's build and name. Until then the peer is connected but unknown.
-        FE_LOG_INFO("peer {} connected, awaiting handshake",
+        MPE_LOG_INFO("peer {} connected, awaiting handshake",
                     static_cast<std::uint32_t>(peer));
         return;
     }
@@ -1036,7 +1036,7 @@ void LobbyManager::OnPeerDisconnected(PeerHandle peer, DisconnectReason reason,
     if (is_host_) {
         PlayerSlot* const player = FindPlayerByPeer(peer);
         const std::string name = (player != nullptr) ? player->display_name : std::string("a peer");
-        FE_LOG_INFO("{} disconnected: {} ({})", name, ToString(reason), detail);
+        MPE_LOG_INFO("{} disconnected: {} ({})", name, ToString(reason), detail);
 
         RemovePlayerByPeer(peer);
         ApplyBandwidthBudget();
@@ -1048,7 +1048,7 @@ void LobbyManager::OnPeerDisconnected(PeerHandle peer, DisconnectReason reason,
         if (phase_ == LobbyPhase::Countdown) {
             const Result cancelled = CancelCountdown(std::format("{} left", name));
             if (!cancelled.ok()) {
-                FE_LOG_WARN("cancel after disconnect failed: {}", cancelled.message());
+                MPE_LOG_WARN("cancel after disconnect failed: {}", cancelled.message());
             }
         }
         return;
@@ -1070,7 +1070,7 @@ void LobbyManager::OnPeerDisconnected(PeerHandle peer, DisconnectReason reason,
 
 void LobbyManager::OnConnectFailed(DisconnectReason reason, std::string_view detail) {
     if (is_host_) {
-        FE_LOG_WARN("an inbound connection failed: {} ({})", ToString(reason), detail);
+        MPE_LOG_WARN("an inbound connection failed: {} ({})", ToString(reason), detail);
         return;
     }
     Fault(Error{ErrorCode::TransportUnavailable,
@@ -1090,7 +1090,7 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
                                 std::span<const std::byte> payload) {
     const Expected<DecodedPacket> decoded = DecodePacket(payload, channel);
     if (!decoded.ok()) {
-        FE_LOG_WARN("dropping a packet from peer {}: {}", static_cast<std::uint32_t>(peer),
+        MPE_LOG_WARN("dropping a packet from peer {}: {}", static_cast<std::uint32_t>(peer),
                     decoded.message());
         transport_.Disconnect(peer, DisconnectReason::ProtocolViolation, decoded.message());
         return;
@@ -1106,7 +1106,7 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
                                         ToString(packet.type),
                                         role == PeerRole::Host ? "host" : "client",
                                         ToString(phase_));
-        FE_LOG_WARN("peer {}: {}", static_cast<std::uint32_t>(peer), detail);
+        MPE_LOG_WARN("peer {}: {}", static_cast<std::uint32_t>(peer), detail);
         transport_.Disconnect(peer, DisconnectReason::ProtocolViolation, detail);
         return;
     }
@@ -1115,7 +1115,7 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
     // learned our identity could inject a roster or a launch.
     if (!is_host_ && peer != host_peer_ && packet.type != MessageType::HandshakeAccept &&
         packet.type != MessageType::HandshakeReject) {
-        FE_LOG_WARN("dropping {} from non host peer {}", ToString(packet.type),
+        MPE_LOG_WARN("dropping {} from non host peer {}", ToString(packet.type),
                     static_cast<std::uint32_t>(peer));
         transport_.Disconnect(peer, DisconnectReason::ProtocolViolation,
                               "only the host may send lobby traffic");
@@ -1162,7 +1162,7 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
     }
 
     if (!handled.ok()) {
-        FE_LOG_WARN("handling {} from peer {} failed: {}", ToString(packet.type),
+        MPE_LOG_WARN("handling {} from peer {} failed: {}", ToString(packet.type),
                     static_cast<std::uint32_t>(peer), handled.message());
 
         // A malformed or unauthorized message is a disconnect. Anything else is a
@@ -1178,7 +1178,7 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
 }
 
 Result LobbyManager::HandleHandshakeRequest(PeerHandle peer, ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const HandshakeRequestBody body, HandshakeRequestBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const HandshakeRequestBody body, HandshakeRequestBody::Read(reader));
 
     const auto reject = [&](DisconnectReason reason, std::string detail) -> Result {
         std::vector<std::byte> packet;
@@ -1190,11 +1190,11 @@ Result LobbyManager::HandleHandshakeRequest(PeerHandle peer, ByteReader& reader)
         if (const Result sent = SendTo(peer, MessageType::HandshakeReject, packet,
                                        SendMode::Reliable);
             !sent.ok()) {
-            FE_LOG_DEBUG("sending the rejection failed: {}", sent.message());
+            MPE_LOG_DEBUG("sending the rejection failed: {}", sent.message());
         }
         transport_.Flush();
         transport_.Disconnect(peer, reason, detail);
-        FE_LOG_INFO("rejected peer {}: {}", static_cast<std::uint32_t>(peer), detail);
+        MPE_LOG_INFO("rejected peer {}: {}", static_cast<std::uint32_t>(peer), detail);
         return Result::Success(); // Handled; the peer is gone.
     };
 
@@ -1248,25 +1248,25 @@ Result LobbyManager::HandleHandshakeRequest(PeerHandle peer, ByteReader& reader)
     accept.assigned_team  = player.team;
     accept.host_tick_rate = 60;
     accept.Write(builder.Body());
-    FE_TRY(SendTo(peer, MessageType::HandshakeAccept, packet, SendMode::Reliable));
+    MPE_TRY(SendTo(peer, MessageType::HandshakeAccept, packet, SendMode::Reliable));
 
-    FE_LOG_INFO("{} joined as slot {} on team {}", player.display_name, player.slot, player.team);
+    MPE_LOG_INFO("{} joined as slot {} on team {}", player.display_name, player.slot, player.team);
 
     ApplyBandwidthBudget();
     BroadcastSettings();
     BroadcastRoster();
 
     if (selected_map_.has_value()) {
-        FE_TRY(BeginMapTransferTo(peer));
+        MPE_TRY(BeginMapTransferTo(peer));
     }
     MarkDirty();
     return Result::Success();
 }
 
 Result LobbyManager::HandleHandshakeAccept(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const HandshakeAcceptBody body, HandshakeAcceptBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const HandshakeAcceptBody body, HandshakeAcceptBody::Read(reader));
 
-    FE_LOG_INFO("accepted into the match as slot {} on team {}", body.assigned_slot,
+    MPE_LOG_INFO("accepted into the match as slot {} on team {}", body.assigned_slot,
                 body.assigned_team);
 
     // The roster arrives separately; this only confirms admission.
@@ -1275,7 +1275,7 @@ Result LobbyManager::HandleHandshakeAccept(ByteReader& reader) {
 }
 
 Result LobbyManager::HandleHandshakeReject(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const HandshakeRejectBody body, HandshakeRejectBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const HandshakeRejectBody body, HandshakeRejectBody::Read(reader));
 
     // Reported as a fault carrying the host's own words, which is far more useful
     // than a generic connection failure.
@@ -1285,7 +1285,7 @@ Result LobbyManager::HandleHandshakeReject(ByteReader& reader) {
 }
 
 Result LobbyManager::HandleRosterUpdate(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(RosterUpdateBody body, RosterUpdateBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(RosterUpdateBody body, RosterUpdateBody::Read(reader));
 
     // Stale snapshots are discarded rather than applied out of order.
     if (body.revision < roster_revision_) {
@@ -1323,13 +1323,13 @@ Result LobbyManager::HandleRosterUpdate(ByteReader& reader) {
 }
 
 Result LobbyManager::HandleMatchSettings(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const MatchSettingsBody body, MatchSettingsBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const MatchSettingsBody body, MatchSettingsBody::Read(reader));
 
     engine::MatchSettings incoming = FromWire(body);
     // The host's settings are authoritative but still validated: a host running
     // a modified build must not be able to drive this client into a state its own
     // engine cannot represent.
-    FE_TRY(incoming.Validate());
+    MPE_TRY(incoming.Validate());
 
     settings_ = incoming;
     MarkDirty();
@@ -1353,7 +1353,7 @@ Result LobbyManager::HandleReadyStateChange(PeerHandle peer, ByteReader& reader)
     const bool effective = ready && player->has_map;
     if (player->is_ready != effective) {
         player->is_ready = effective;
-        FE_LOG_INFO("{} is {}", player->display_name, effective ? "ready" : "not ready");
+        MPE_LOG_INFO("{} is {}", player->display_name, effective ? "ready" : "not ready");
         BroadcastRoster();
         MarkDirty();
     }
@@ -1361,7 +1361,7 @@ Result LobbyManager::HandleReadyStateChange(PeerHandle peer, ByteReader& reader)
 }
 
 Result LobbyManager::HandleLaunchCountdown(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const LaunchCountdownBody body, LaunchCountdownBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const LaunchCountdownBody body, LaunchCountdownBody::Read(reader));
 
     if (body.cancelled) {
         countdown_remaining_ = 0.0;
@@ -1382,7 +1382,7 @@ Result LobbyManager::HandleLaunchCountdown(ByteReader& reader) {
 }
 
 Result LobbyManager::HandleLaunchNow(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const LaunchNowBody body, LaunchNowBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const LaunchNowBody body, LaunchNowBody::Read(reader));
 
     // The host's map must be the one we hold. Loading a different layout would
     // put objects in different places on different machines, which the engine's
@@ -1395,7 +1395,7 @@ Result LobbyManager::HandleLaunchNow(ByteReader& reader) {
         }
     }
     if (body.scenario != settings_.scenario) {
-        FE_LOG_INFO("host launched scenario '{}', updating from '{}'", body.scenario,
+        MPE_LOG_INFO("host launched scenario '{}', updating from '{}'", body.scenario,
                     settings_.scenario);
         settings_.scenario = body.scenario;
     }
@@ -1405,7 +1405,7 @@ Result LobbyManager::HandleLaunchNow(ByteReader& reader) {
 }
 
 Result LobbyManager::HandleLoadProgress(PeerHandle peer, ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const LoadProgressBody body, LoadProgressBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const LoadProgressBody body, LoadProgressBody::Read(reader));
 
     PlayerSlot* const player = FindPlayerByPeer(peer);
     if (player == nullptr) {
@@ -1422,22 +1422,22 @@ Result LobbyManager::HandleLoadProgress(PeerHandle peer, ByteReader& reader) {
 }
 
 Result LobbyManager::HandleAllPeersLoaded() {
-    FE_TRY(engine_.LaunchMatch());
+    MPE_TRY(engine_.LaunchMatch());
     TransitionTo(LobbyPhase::InMatch, "In match");
-    FE_LOG_INFO("match live");
+    MPE_LOG_INFO("match live");
     return Result::Success();
 }
 
 Result LobbyManager::HandleMatchEnded() {
     if (const Result ended = engine_.EndMatch(); !ended.ok()) {
-        FE_LOG_WARN("EndMatch failed: {}", ended.message());
+        MPE_LOG_WARN("EndMatch failed: {}", ended.message());
     }
     TransitionTo(LobbyPhase::PostMatch, "Match complete");
     return Result::Success();
 }
 
 Result LobbyManager::HandleChatMessage(PeerHandle peer, ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const ChatMessageBody body, ChatMessageBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const ChatMessageBody body, ChatMessageBody::Read(reader));
 
     if (is_host_) {
         // The host stamps the author from the authenticated connection rather
@@ -1458,7 +1458,7 @@ Result LobbyManager::HandleChatMessage(PeerHandle peer, ByteReader& reader) {
 
         if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
             !sent.ok()) {
-            FE_LOG_DEBUG("relaying chat failed: {}", sent.message());
+            MPE_LOG_DEBUG("relaying chat failed: {}", sent.message());
         }
         sink_.OnChatMessage(author->platform_id, author->display_name, body.text);
         return Result::Success();
@@ -1475,7 +1475,7 @@ Result LobbyManager::HandleChatMessage(PeerHandle peer, ByteReader& reader) {
 // ---------------------------------------------------------------------------
 
 Result LobbyManager::HandleMapManifest(ByteReader& reader) {
-    FE_ASSIGN_OR_RETURN(const MapManifestBody manifest, MapManifestBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const MapManifestBody manifest, MapManifestBody::Read(reader));
 
     // Already holding exactly this map: nothing to transfer.
     if (selected_map_.has_value() && selected_map_->digest_hex == manifest.content_hash_hex) {
@@ -1483,7 +1483,7 @@ Result LobbyManager::HandleMapManifest(ByteReader& reader) {
         std::vector<std::byte> packet;
         PacketBuilder builder(packet, MessageType::MapTransferDone, Channel::MapTransfer);
         builder.Body().WriteString(manifest.content_hash_hex);
-        FE_TRY(SendTo(host_peer_, MessageType::MapTransferDone, packet, SendMode::Reliable));
+        MPE_TRY(SendTo(host_peer_, MessageType::MapTransferDone, packet, SendMode::Reliable));
         MarkDirty();
         return Result::Success();
     }
@@ -1495,7 +1495,7 @@ Result LobbyManager::HandleMapManifest(ByteReader& reader) {
     map_receive_ = std::move(receive);
     local_has_map_ = false;
 
-    FE_LOG_INFO("receiving map '{}' ({} bytes in {} chunks)", manifest.map_name,
+    MPE_LOG_INFO("receiving map '{}' ({} bytes in {} chunks)", manifest.map_name,
                 manifest.total_bytes, manifest.chunk_count);
 
     // Request every chunk up front. The transport's reliable lane handles
@@ -1505,7 +1505,7 @@ Result LobbyManager::HandleMapManifest(ByteReader& reader) {
         std::vector<std::byte> packet;
         PacketBuilder builder(packet, MessageType::MapChunkRequest, Channel::MapTransfer);
         builder.Body().WriteU32(index);
-        FE_TRY(SendTo(host_peer_, MessageType::MapChunkRequest, packet, SendMode::Reliable));
+        MPE_TRY(SendTo(host_peer_, MessageType::MapChunkRequest, packet, SendMode::Reliable));
     }
     MarkDirty();
     return Result::Success();
@@ -1548,7 +1548,7 @@ Result LobbyManager::HandleMapChunk(ByteReader& reader) {
         return Result::Success();
     }
     // Read validates the CRC and rejects an oversized chunk.
-    FE_ASSIGN_OR_RETURN(const MapChunkBody chunk, MapChunkBody::Read(reader));
+    MPE_ASSIGN_OR_RETURN(const MapChunkBody chunk, MapChunkBody::Read(reader));
 
     MapReceive& receive = *map_receive_;
     if (chunk.chunk_index >= receive.manifest.chunk_count) {
@@ -1608,12 +1608,12 @@ Result LobbyManager::HandleMapChunk(ByteReader& reader) {
     local_has_map_        = true;
     map_receive_.reset();
 
-    FE_LOG_INFO("map '{}' received and verified ({})", selected_map_->name, digest_hex);
+    MPE_LOG_INFO("map '{}' received and verified ({})", selected_map_->name, digest_hex);
 
     std::vector<std::byte> packet;
     PacketBuilder builder(packet, MessageType::MapTransferDone, Channel::MapTransfer);
     builder.Body().WriteString(digest_hex);
-    FE_TRY(SendTo(host_peer_, MessageType::MapTransferDone, packet, SendMode::Reliable));
+    MPE_TRY(SendTo(host_peer_, MessageType::MapTransferDone, packet, SendMode::Reliable));
 
     MarkDirty();
     return Result::Success();
@@ -1627,7 +1627,7 @@ Result LobbyManager::HandleMapTransferDone(PeerHandle peer) {
     }
     if (!player->has_map) {
         player->has_map = true;
-        FE_LOG_INFO("{} now holds the map", player->display_name);
+        MPE_LOG_INFO("{} now holds the map", player->display_name);
         BroadcastRoster();
         MarkDirty();
     }
@@ -1636,7 +1636,7 @@ Result LobbyManager::HandleMapTransferDone(PeerHandle peer) {
 
 Result LobbyManager::HandleSimulationDatagram(PeerHandle peer,
                                               std::span<const std::byte> body) {
-    // ForgeEvolved does not interpret engine traffic. The body is handed to the
+    // MultiplayerEvolved does not interpret engine traffic. The body is handed to the
     // engine's own session layer, which is what lets the shipped replication,
     // interpolation and priority systems operate unchanged over Steam.
     if (body.empty()) {
@@ -1691,13 +1691,13 @@ void LobbyManager::BroadcastRoster() {
 
     if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
         !sent.ok()) {
-        FE_LOG_DEBUG("roster broadcast failed: {}", sent.message());
+        MPE_LOG_DEBUG("roster broadcast failed: {}", sent.message());
     }
 
     if (const Result published =
             backend_.SetLobbyData(keys::kPlayerCount, std::to_string(players_.size()));
         !published.ok()) {
-        FE_LOG_DEBUG("publishing player count failed: {}", published.message());
+        MPE_LOG_DEBUG("publishing player count failed: {}", published.message());
     }
 }
 
@@ -1711,7 +1711,7 @@ void LobbyManager::BroadcastSettings() {
 
     if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
         !sent.ok()) {
-        FE_LOG_DEBUG("settings broadcast failed: {}", sent.message());
+        MPE_LOG_DEBUG("settings broadcast failed: {}", sent.message());
     }
 }
 
@@ -1727,7 +1727,7 @@ void LobbyManager::BroadcastCountdown(std::uint8_t seconds, bool cancelled,
 
     if (const Result sent = transport_.Broadcast(Channel::Lobby, packet, SendMode::Reliable);
         !sent.ok()) {
-        FE_LOG_WARN("countdown broadcast failed: {}", sent.message());
+        MPE_LOG_WARN("countdown broadcast failed: {}", sent.message());
     }
     transport_.Flush();
 }
@@ -1742,12 +1742,12 @@ Result LobbyManager::LoadSelectedMap(std::string_view path) {
     // errors would produce a different layout on a peer running a stricter build.
     options.treat_warnings_as_errors = false;
 
-    FE_ASSIGN_OR_RETURN(map::ParseResult parsed,
+    MPE_ASSIGN_OR_RETURN(map::ParseResult parsed,
                         map::ParseJsonFile(std::filesystem::path(path), options));
 
     for (const map::Diagnostic& diagnostic : parsed.diagnostics) {
         if (diagnostic.severity == map::Severity::Warning) {
-            FE_LOG_WARN("map '{}': {} ({})", path, diagnostic.message, diagnostic.json_path);
+            MPE_LOG_WARN("map '{}': {} ({})", path, diagnostic.message, diagnostic.json_path);
         }
     }
 
@@ -1771,7 +1771,7 @@ Result LobbyManager::LoadSelectedMap(std::string_view path) {
     settings_.scenario     = payload.base_scenario;
     settings_.variant_name = payload.name;
 
-    FE_LOG_INFO("selected map '{}' on scenario '{}' ({} bytes, {})", payload.name,
+    MPE_LOG_INFO("selected map '{}' on scenario '{}' ({} bytes, {})", payload.name,
                 payload.base_scenario, payload.bytes.size(), payload.digest_hex);
 
     selected_map_  = std::move(payload);
@@ -1797,7 +1797,7 @@ Result LobbyManager::BeginMapTransferTo(PeerHandle peer) {
 
     // Validated before sending, so a bug here surfaces on the host rather than as
     // a mysterious rejection on a client.
-    FE_TRY(manifest.Validate());
+    MPE_TRY(manifest.Validate());
     manifest.Write(builder.Body());
 
     return SendTo(peer, MessageType::MapManifest, packet, SendMode::Reliable);
@@ -1807,22 +1807,22 @@ Result LobbyManager::BeginLoad(std::string_view scenario, std::uint32_t seed) {
     engine::MatchSettings applied = settings_;
     applied.scenario    = std::string(scenario);
     applied.random_seed = seed;
-    FE_TRY(applied.Validate());
-    FE_TRY(engine_.ApplyMatchSettings(applied));
+    MPE_TRY(applied.Validate());
+    MPE_TRY(engine_.ApplyMatchSettings(applied));
 
     // The map variant is handed over before the scenario loads, so the engine's
     // own variant loader places objects as part of the load rather than after it.
     if (selected_map_.has_value()) {
-        FE_TRY(engine_.LoadMapVariant(selected_map_->digest_hex));
+        MPE_TRY(engine_.LoadMapVariant(selected_map_->digest_hex));
     }
 
-    FE_TRY(engine_.BeginLoadScenario(scenario, seed));
+    MPE_TRY(engine_.BeginLoadScenario(scenario, seed));
 
     for (PlayerSlot& player : players_) {
         player.load_progress = 0.0f;
     }
     TransitionTo(LobbyPhase::Loading, "Loading");
-    FE_LOG_INFO("loading scenario '{}' with seed {}", scenario, seed);
+    MPE_LOG_INFO("loading scenario '{}' with seed {}", scenario, seed);
     return Result::Success();
 }
 
@@ -1833,11 +1833,11 @@ void LobbyManager::ApplyBandwidthBudget() {
         std::max(kMinimumPerPeerBytesPerSecond, kAssumedHostUplinkBytesPerSecond / divisor);
 
     if (const Result applied = engine_.SetSimulationBandwidth(per_peer); !applied.ok()) {
-        FE_LOG_WARN("setting the simulation bandwidth to {} B/s failed: {}", per_peer,
+        MPE_LOG_WARN("setting the simulation bandwidth to {} B/s failed: {}", per_peer,
                     applied.message());
         return;
     }
-    FE_LOG_DEBUG("simulation bandwidth set to {} B/s per peer for {} peer(s)", per_peer,
+    MPE_LOG_DEBUG("simulation bandwidth set to {} B/s per peer for {} peer(s)", per_peer,
                  peer_count);
 }
 
@@ -1915,12 +1915,12 @@ void LobbyManager::TransitionTo(LobbyPhase phase, std::string_view status_text) 
     phase_elapsed_ = 0.0;
     snapshot_.status_text.assign(status_text);
 
-    FE_LOG_INFO("phase {} -> {} ({})", ToString(previous), ToString(phase), status_text);
+    MPE_LOG_INFO("phase {} -> {} ({})", ToString(previous), ToString(phase), status_text);
 
     if (is_host_ && backend_.InLobby()) {
         if (const Result published = backend_.SetLobbyData(keys::kLobbyPhase, ToString(phase));
             !published.ok()) {
-            FE_LOG_DEBUG("publishing the phase failed: {}", published.message());
+            MPE_LOG_DEBUG("publishing the phase failed: {}", published.message());
         }
         // Close the lobby to newcomers once a match is committed, so nobody joins
         // into a load they cannot participate in.
@@ -1928,7 +1928,7 @@ void LobbyManager::TransitionTo(LobbyPhase phase, std::string_view status_text) 
         if (const Result visibility = backend_.SetVisibility(
                 closed ? LobbyVisibility::InviteOnly : LobbyVisibility::FriendsOnly);
             !visibility.ok()) {
-            FE_LOG_DEBUG("adjusting visibility failed: {}", visibility.message());
+            MPE_LOG_DEBUG("adjusting visibility failed: {}", visibility.message());
         }
     }
 
@@ -1938,7 +1938,7 @@ void LobbyManager::TransitionTo(LobbyPhase phase, std::string_view status_text) 
 }
 
 void LobbyManager::Fault(const Error& error) {
-    FE_LOG_ERROR("faulted: {} ({})", error.message, ToString(error.code));
+    MPE_LOG_ERROR("faulted: {} ({})", error.message, ToString(error.code));
 
     snapshot_.last_error = error.message;
     // The transport and lobby are released immediately, but the phase is left as
@@ -1980,4 +1980,4 @@ void LobbyManager::RebuildSnapshot() {
     sink_.OnSnapshotChanged(snapshot_);
 }
 
-} // namespace fe::lobby
+} // namespace mpe::lobby

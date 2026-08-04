@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Result.h
+// MultiplayerEvolved: Core/Result.h
 //
 // Exception-free error propagation.
 //
@@ -16,7 +16,7 @@
 #include <string_view>
 #include <utility>
 
-namespace fe {
+namespace mpe {
 
 /// Coarse failure classification. Callers branch on this; the message carries
 /// the human readable detail. Kept flat and stable so it can be logged as an
@@ -147,37 +147,37 @@ private:
 /// Propagate a failure out of the current function.
 ///
 /// Usage:
-///   FE_TRY(registry.Resolve());
-#define FE_TRY(expr)                                                           \
+///   MPE_TRY(registry.Resolve());
+#define MPE_TRY(expr)                                                           \
     do {                                                                       \
-        ::fe::Result fe_try_result_ = (expr);                                   \
+        ::mpe::Result fe_try_result_ = (expr);                                   \
         if (!fe_try_result_.ok()) {                                             \
-            return ::fe::Result{fe_try_result_.error()};                        \
+            return ::mpe::Result{fe_try_result_.error()};                        \
         }                                                                       \
     } while (false)
 
 /// Propagate a failure out of a function returning Expected<U>.
-#define FE_TRY_EXPECTED(expr)                                                  \
+#define MPE_TRY_EXPECTED(expr)                                                  \
     do {                                                                       \
-        ::fe::Result fe_try_result_ = (expr);                                   \
+        ::mpe::Result fe_try_result_ = (expr);                                   \
         if (!fe_try_result_.ok()) {                                             \
             return fe_try_result_.error();                                       \
         }                                                                       \
     } while (false)
 
 // Two level indirection so __LINE__ expands before pasting.
-#define FE_CONCAT_INNER(a, b) a##b
-#define FE_CONCAT(a, b) FE_CONCAT_INNER(a, b)
+#define MPE_CONCAT_INNER(a, b) a##b
+#define MPE_CONCAT(a, b) MPE_CONCAT_INNER(a, b)
 
 /// Bind the value of an Expected<T> or propagate its failure.
 ///
 /// Usage:
-///   FE_ASSIGN_OR_RETURN(auto bytes, ReadFile(path));
-#define FE_ASSIGN_OR_RETURN(decl, expr)                                        \
-    auto FE_CONCAT(fe_expected_, __LINE__) = (expr);                            \
-    if (!FE_CONCAT(fe_expected_, __LINE__).ok()) {                              \
-        return FE_CONCAT(fe_expected_, __LINE__).error();                       \
+///   MPE_ASSIGN_OR_RETURN(auto bytes, ReadFile(path));
+#define MPE_ASSIGN_OR_RETURN(decl, expr)                                        \
+    auto MPE_CONCAT(fe_expected_, __LINE__) = (expr);                            \
+    if (!MPE_CONCAT(fe_expected_, __LINE__).ok()) {                              \
+        return MPE_CONCAT(fe_expected_, __LINE__).error();                       \
     }                                                                           \
-    decl = std::move(FE_CONCAT(fe_expected_, __LINE__)).value()
+    decl = std::move(MPE_CONCAT(fe_expected_, __LINE__)).value()
 
-} // namespace fe
+} // namespace mpe

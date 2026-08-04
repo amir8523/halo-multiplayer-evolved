@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Net/SteamSocketsTransport.cpp
-#define FE_LOG_CATEGORY "Net.Steam"
+// MultiplayerEvolved: Net/SteamSocketsTransport.cpp
+#define MPE_LOG_CATEGORY "Net.Steam"
 
 #include "Net/SteamSocketsTransport.h"
 
@@ -11,7 +11,7 @@
 #include <cstring>
 #include <format>
 
-namespace fe::net {
+namespace mpe::net {
 namespace {
 
 /// Application close reasons. Steam reserves the App range for us, so the remote
@@ -72,7 +72,7 @@ Expected<std::unique_ptr<SteamSocketsTransport>> SteamSocketsTransport::Create(
     }
     if (!steam::IsInitialized()) {
         return Error{ErrorCode::SteamUnavailable,
-                     "the Steam binding is not initialized; call fe::steam::Initialize first"};
+                     "the Steam binding is not initialized; call mpe::steam::Initialize first"};
     }
     if (!steam::HasNetworkingSockets()) {
         return Error{ErrorCode::SteamUnavailable,
@@ -92,7 +92,7 @@ Expected<std::unique_ptr<SteamSocketsTransport>> SteamSocketsTransport::Create(
     transport->connection_status_callback_.Register(
         transport.get(), &SteamSocketsTransport::OnConnectionStatusChanged);
 
-    FE_LOG_INFO("steam transport ready (virtual port {}, relay warm up requested)",
+    MPE_LOG_INFO("steam transport ready (virtual port {}, relay warm up requested)",
                 options.virtual_port);
     return transport;
 }
@@ -156,7 +156,7 @@ Result SteamSocketsTransport::Listen(const ListenConfig& config) {
     }
 
     accepting_ = true;
-    FE_LOG_INFO("listening on P2P virtual port {} for up to {} client(s)",
+    MPE_LOG_INFO("listening on P2P virtual port {} for up to {} client(s)",
                 options_.virtual_port, config.max_clients);
     return Result::Success();
 }
@@ -212,7 +212,7 @@ Result SteamSocketsTransport::Connect(const PeerIdentity& host,
     peers_.emplace(handle, PeerEntry{connection, host, false});
     by_connection_.emplace(connection, handle);
 
-    FE_LOG_INFO("connecting to host {} (timeout {} ms)", host.platform_id, timeout_milliseconds);
+    MPE_LOG_INFO("connecting to host {} (timeout {} ms)", host.platform_id, timeout_milliseconds);
     return Result::Success();
 }
 
@@ -418,7 +418,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
                 return;
             }
             if (peers_.size() >= listen_config_.max_clients) {
-                FE_LOG_INFO("rejecting {} : session is full ({} clients)",
+                MPE_LOG_INFO("rejecting {} : session is full ({} clients)",
                             change.remote_platform_id, listen_config_.max_clients);
                 (void)steam::CloseConnection(change.connection,
                                              EncodeEndReason(DisconnectReason::Kicked),
@@ -428,7 +428,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
 
             const steam::EResult accepted = steam::AcceptConnection(change.connection);
             if (accepted != steam::EResult::Ok) {
-                FE_LOG_WARN("AcceptConnection for {} failed with EResult {}",
+                MPE_LOG_WARN("AcceptConnection for {} failed with EResult {}",
                             change.remote_platform_id, static_cast<int>(accepted));
                 (void)steam::CloseConnection(change.connection,
                                              EncodeEndReason(DisconnectReason::InternalError),
@@ -437,7 +437,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
             }
             const Result configured = ConfigureConnection(change.connection);
             if (!configured.ok()) {
-                FE_LOG_WARN("configuring inbound connection from {} failed: {}",
+                MPE_LOG_WARN("configuring inbound connection from {} failed: {}",
                             change.remote_platform_id, configured.message());
                 (void)steam::CloseConnection(change.connection,
                                              EncodeEndReason(DisconnectReason::InternalError),
@@ -449,7 +449,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
             peers_.emplace(handle, PeerEntry{change.connection,
                                              PeerIdentity{change.remote_platform_id}, false});
             by_connection_.emplace(change.connection, handle);
-            FE_LOG_INFO("accepted inbound connection from {} as peer {}",
+            MPE_LOG_INFO("accepted inbound connection from {} as peer {}",
                         change.remote_platform_id, static_cast<std::uint32_t>(handle));
             return;
         }
@@ -459,7 +459,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
             if (handle == PeerHandle::Invalid) {
                 // A connection we do not track reaching Connected means our maps and
                 // Steam's state have diverged. Close it rather than leak it.
-                FE_LOG_WARN("untracked connection {} reached Connected; closing",
+                MPE_LOG_WARN("untracked connection {} reached Connected; closing",
                             change.connection);
                 (void)steam::CloseConnection(change.connection,
                                              EncodeEndReason(DisconnectReason::InternalError),
@@ -473,7 +473,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
             }
 
             if (!steam::SetConnectionPollGroup(change.connection, poll_group_)) {
-                FE_LOG_WARN("SetConnectionPollGroup failed for peer {}",
+                MPE_LOG_WARN("SetConnectionPollGroup failed for peer {}",
                             static_cast<std::uint32_t>(handle));
             }
             entry->connected = true;
@@ -481,7 +481,7 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
                 entry->identity.platform_id = change.remote_platform_id;
             }
 
-            FE_LOG_INFO("peer {} ({}) connected", static_cast<std::uint32_t>(handle),
+            MPE_LOG_INFO("peer {} ({}) connected", static_cast<std::uint32_t>(handle),
                         entry->identity.platform_id);
             observer.OnPeerConnected(handle, entry->identity);
             return;
@@ -513,11 +513,11 @@ void SteamSocketsTransport::ProcessStatusChange(const PendingStatusChange& chang
             ForgetPeer(handle);
 
             if (was_connected) {
-                FE_LOG_INFO("peer {} disconnected: {} ({})", static_cast<std::uint32_t>(handle),
+                MPE_LOG_INFO("peer {} disconnected: {} ({})", static_cast<std::uint32_t>(handle),
                             ToString(reason), change.end_debug);
                 observer.OnPeerDisconnected(handle, reason, change.end_debug);
             } else {
-                FE_LOG_INFO("connection attempt failed: {} ({})", ToString(reason),
+                MPE_LOG_INFO("connection attempt failed: {} ({})", ToString(reason),
                             change.end_debug);
                 observer.OnConnectFailed(reason, change.end_debug);
             }
@@ -566,7 +566,7 @@ void SteamSocketsTransport::DrainReceivedMessages(ITransportObserver& observer) 
             // The lane the sender used is the channel. An out of range lane is a
             // protocol violation, not something to guess at.
             if (message->m_idxLane >= kLaneCount) {
-                FE_LOG_WARN("peer {} sent on lane {}, which is out of range",
+                MPE_LOG_WARN("peer {} sent on lane {}, which is out of range",
                             static_cast<std::uint32_t>(handle), message->m_idxLane);
                 message->Release();
                 Disconnect(handle, DisconnectReason::ProtocolViolation, "invalid lane index");
@@ -604,7 +604,7 @@ void SteamSocketsTransport::Disconnect(PeerHandle peer, DisconnectReason reason,
     if (entry->connection == host_connection_) {
         host_connection_ = steam::kInvalidConnection;
     }
-    FE_LOG_INFO("closing peer {}: {} ({})", static_cast<std::uint32_t>(peer), ToString(reason),
+    MPE_LOG_INFO("closing peer {}: {} ({})", static_cast<std::uint32_t>(peer), ToString(reason),
                 detail_z);
     ForgetPeer(peer);
 }
@@ -733,4 +733,4 @@ DisconnectReason SteamSocketsTransport::TranslateEndReason(int steam_reason,
     return was_connected ? DisconnectReason::RemoteRequest : DisconnectReason::RelayFailure;
 }
 
-} // namespace fe::net
+} // namespace mpe::net

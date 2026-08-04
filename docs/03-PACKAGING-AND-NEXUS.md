@@ -14,7 +14,7 @@ the game binary is loaded automatically at process start.
 
 That removes every step that normally goes wrong:
 
-| Usual approach | Problem | ForgeEvolved |
+| Usual approach | Problem | MultiplayerEvolved |
 | --- | --- | --- |
 | Injector executable | Antivirus flags one process opening another | Not used |
 | Custom launcher | Breaks Steam overlay, playtime, invites | Not used |
@@ -29,10 +29,10 @@ Install is a file copy. Uninstall is deleting those files.
 One archive, laid out so its root maps onto the game's `Meteorite/Binaries/Win64`:
 
 ```
-ForgeEvolved-0.1.0.zip
+MultiplayerEvolved-0.1.0.zip
 ├── version.dll                     the loader proxy
-├── ForgeEvolved.dll                the mod
-└── ForgeEvolved/
+├── MultiplayerEvolved.dll                the mod
+└── MultiplayerEvolved/
     ├── symbols/
     │   └── <game build>.json       one per supported game build
     ├── maps/
@@ -62,8 +62,8 @@ JavaScript file declaring:
 - Steam App ID `2806050`, which is how Vortex finds the install without asking.
 - The mod path, `Meteorite/Binaries/Win64`.
 - The executable to launch, `Meteorite/Binaries/Win64/HaloCampaignEvolved.exe`.
-- A test that an archive is a ForgeEvolved mod, namely the presence of
-  `ForgeEvolved.dll` or a `ForgeEvolved/` directory at the root.
+- A test that an archive is a MultiplayerEvolved mod, namely the presence of
+  `MultiplayerEvolved.dll` or a `MultiplayerEvolved/` directory at the root.
 
 The extension is published separately from the mod, and Vortex offers it to anyone
 who adds the game. This is the single highest leverage piece of packaging work:
@@ -103,8 +103,8 @@ requests:
 
 ## Verifying an install without launching the game
 
-After install, `Meteorite/Binaries/Win64/ForgeEvolved/loader.log` should exist after
-the first launch and contain `loaded ForgeEvolved.dll`. If the file is missing, the
+After install, `Meteorite/Binaries/Win64/MultiplayerEvolved/loader.log` should exist after
+the first launch and contain `loaded MultiplayerEvolved.dll`. If the file is missing, the
 proxy is not being loaded, which means it is in the wrong directory. If the file
 exists and reports a `LoadLibrary` failure, the runtime is missing.
 
@@ -147,7 +147,7 @@ not, it goes inert with the reason in the log rather than crashing.
 
 That behaviour needs to be in the description, because the day after a game patch
 is when the comments arrive. Ask affected users for their log and their game
-version, which is what `FE_DumpDiagnostics()` and the startup lines provide, then
+version, which is what `MPE_DumpDiagnostics()` and the startup lines provide, then
 ship a new descriptor JSON. That is a data-only release and can be same day.
 
 ## Release checklist
@@ -160,7 +160,7 @@ ship a new descriptor JSON. That is a data-only release and can be same day.
 [ ] Tested: install on a machine that has never had the mod
 [ ] Tested: uninstall leaves no files behind
 [ ] Tested: game still launches with the mod present but Steam offline
-[ ] loader.log and ForgeEvolved.log both produced and readable
+[ ] loader.log and MultiplayerEvolved.log both produced and readable
 [ ] Archive root maps onto Meteorite/Binaries/Win64
 [ ] PDB uploaded as a separate optional file
 [ ] Changelog states whether the protocol version changed

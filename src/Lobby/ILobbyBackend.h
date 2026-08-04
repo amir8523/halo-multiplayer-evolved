@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Lobby/ILobbyBackend.h
+// MultiplayerEvolved: Lobby/ILobbyBackend.h
 //
 // Platform facade for lobby discovery, membership and invitations.
 //
@@ -32,7 +32,7 @@
 
 #include "Core/Result.h"
 
-namespace fe::lobby {
+namespace mpe::lobby {
 
 /// Platform lobby identifier. Zero means no lobby.
 using LobbyId = std::uint64_t;
@@ -178,4 +178,4 @@ public:
     virtual void Poll(ILobbyBackendObserver& observer) = 0;
 };
 
-} // namespace fe::lobby
+} // namespace mpe::lobby

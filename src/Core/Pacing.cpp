@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: MIT
-// ForgeEvolved: Core/Pacing.cpp
-#define FE_LOG_CATEGORY "Core.Pacing"
+// MultiplayerEvolved: Core/Pacing.cpp
+#define MPE_LOG_CATEGORY "Core.Pacing"
 
 #include "Core/Pacing.h"
 
@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <thread>
 
-namespace fe::pacing {
+namespace mpe::pacing {
 namespace {
 
 /// Converts a FILETIME to 100 nanosecond units.
@@ -111,12 +111,12 @@ bool WaitFor(std::string_view description, const std::function<bool()>& predicat
             const auto waited = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::steady_clock::now() - started);
             if (waited.count() > 1) {
-                FE_LOG_INFO("{}: satisfied after {} s", description, waited.count());
+                MPE_LOG_INFO("{}: satisfied after {} s", description, waited.count());
             }
             return true;
         }
         if (should_abort && should_abort()) {
-            FE_LOG_WARN("{}: abandoned, the host process is going away", description);
+            MPE_LOG_WARN("{}: abandoned, the host process is going away", description);
             return false;
         }
 
@@ -126,7 +126,7 @@ bool WaitFor(std::string_view description, const std::function<bool()>& predicat
         const auto waited = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - started);
         if (waited >= next_report) {
-            FE_LOG_INFO("{}: still waiting after {} s", description, waited.count());
+            MPE_LOG_INFO("{}: still waiting after {} s", description, waited.count());
             report_step = std::min(std::chrono::seconds(120), report_step * 2);
             next_report = waited + report_step;
         }
@@ -155,7 +155,7 @@ bool WaitForQuiet(std::string_view description, const std::function<bool()>& sho
                 ++quiet_run;
             } else {
                 if (quiet_run > 0) {
-                    FE_LOG_DEBUG("{}: busy again at {:.0f}% utilization", description,
+                    MPE_LOG_DEBUG("{}: busy again at {:.0f}% utilization", description,
                                  utilization * 100.0);
                 }
                 quiet_run = 0;
@@ -165,5 +165,5 @@ bool WaitForQuiet(std::string_view description, const std::function<bool()>& sho
         should_abort, sample_interval, sample_interval);
 }
 
-} // namespace fe::pacing
+} // namespace mpe::pacing
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Unreal/FNameTrampoline.cpp
-#define FE_LOG_CATEGORY "Unreal.FName"
+// MultiplayerEvolved: Unreal/FNameTrampoline.cpp
+#define MPE_LOG_CATEGORY "Unreal.FName"
 
 #include "Unreal/FNameTrampoline.h"
 
@@ -16,7 +16,7 @@
 #include <mutex>
 #include <vector>
 
-namespace fe::unreal {
+namespace mpe::unreal {
 namespace {
 
 /// RVA of the real name construction routine.
@@ -346,7 +346,7 @@ Result InstallFNameTrampoline(TrampolineInfo& out_info) {
     g_function_table[0].UnwindInfoAddress = static_cast<DWORD>(unwind_address - base);
 
     if (::RtlAddFunctionTable(g_function_table, 1, base) == FALSE) {
-        FE_LOG_WARN("RtlAddFunctionTable was refused; the adapter still runs, but a fault "
+        MPE_LOG_WARN("RtlAddFunctionTable was refused; the adapter still runs, but a fault "
                     "unwinding through it would not be described");
     }
 
@@ -357,7 +357,7 @@ Result InstallFNameTrampoline(TrampolineInfo& out_info) {
     g_done                    = true;
     out_info                  = g_installed;
 
-    FE_LOG_INFO("FName adapter installed at 0x{:X} (RVA 0x{:X}, {} bytes), forwarding to "
+    MPE_LOG_INFO("FName adapter installed at 0x{:X} (RVA 0x{:X}, {} bytes), forwarding to "
                 "0x{:X} (RVA 0x{:X})",
                 cave, g_installed.module_offset, code.size(), target, kConstructRva);
     return Result::Success();
@@ -413,4 +413,4 @@ Result MakeFName(const wchar_t* name, std::uint64_t& out_name) {
     return Result::Success();
 }
 
-} // namespace fe::unreal
+} // namespace mpe::unreal

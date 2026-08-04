@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// ForgeEvolved: Blam/SymbolRegistry.cpp
-#define FE_LOG_CATEGORY "Blam.Symbols"
+// MultiplayerEvolved: Blam/SymbolRegistry.cpp
+#define MPE_LOG_CATEGORY "Blam.Symbols"
 
 #include "Blam/SymbolRegistry.h"
 
@@ -12,10 +12,10 @@
 #include <fstream>
 #include <unordered_set>
 
-namespace fe::blam {
+namespace mpe::blam {
 namespace {
 
-using json = fe::json::Value;
+using json = mpe::json::Value;
 
 /// Reads an optional field, leaving the destination untouched when absent or of the
 /// wrong type. Keeps descriptor files forward compatible: an unknown or mistyped
@@ -27,8 +27,8 @@ void ReadOptional(const json& node, const char* key, T& destination) {
     }
     try {
         destination = node.at(key).get<T>();
-    } catch (const fe::json::exception& e) {
-        FE_LOG_WARN("descriptor field '{}' ignored: {}", key, e.what());
+    } catch (const mpe::json::exception& e) {
+        MPE_LOG_WARN("descriptor field '{}' ignored: {}", key, e.what());
     }
 }
 
@@ -117,7 +117,7 @@ Expected<SymbolRegistryConfig> SymbolRegistryConfig::LoadFromFile(
         // Comments allowed so descriptors can carry inline notes about how each
         // anchor was derived. Exceptions are contained here and converted.
         root = json::parse(stream, nullptr, true, true);
-    } catch (const fe::json::exception& e) {
+    } catch (const mpe::json::exception& e) {
         return Error{ErrorCode::ParseError,
                      std::format("symbol descriptor is not valid JSON: {}", e.what())};
     }
@@ -164,7 +164,7 @@ Expected<SymbolRegistryConfig> SymbolRegistryConfig::LoadFromFile(
                     table.at("stride_candidates").get<std::vector<std::size_t>>();
             }
         }
-    } catch (const fe::json::exception& e) {
+    } catch (const mpe::json::exception& e) {
         return Error{ErrorCode::ParseError,
                      std::format("symbol descriptor has an invalid field: {}", e.what())};
     }
@@ -180,7 +180,7 @@ Expected<SymbolRegistryConfig> SymbolRegistryConfig::LoadFromFile(
                      "min_consecutive_records must be at least 2 to reject false positives"};
     }
 
-    FE_LOG_INFO("loaded symbol descriptor for build '{}' ({} required, {} optional)",
+    MPE_LOG_INFO("loaded symbol descriptor for build '{}' ({} required, {} optional)",
                 config.game_build, config.required_symbols.size(),
                 config.optional_symbols.size());
     return config;
@@ -257,7 +257,7 @@ bool SymbolRegistry::TryResolveName(const PatternScanner& scanner,
     const std::vector<std::uintptr_t> literals =
         scanner.FindStringLiteral(name, config.max_anchor_matches);
     if (literals.empty()) {
-        FE_LOG_DEBUG("symbol '{}': string literal not present in this module", name);
+        MPE_LOG_DEBUG("symbol '{}': string literal not present in this module", name);
         return false;
     }
 
@@ -301,7 +301,7 @@ bool SymbolRegistry::TryResolveName(const PatternScanner& scanner,
         }
     }
 
-    FE_LOG_DEBUG("symbol '{}': found {} literal(s) but none sits in a validatable record array",
+    MPE_LOG_DEBUG("symbol '{}': found {} literal(s) but none sits in a validatable record array",
                  name, literals.size());
     return false;
 }
@@ -362,7 +362,7 @@ Expected<SymbolRegistry> SymbolRegistry::Discover(const ModuleImage& image,
         if (!already_known) {
             registry.tables_.push_back(table);
             registry.IndexTable(image, table);
-            FE_LOG_INFO("table at 0x{:X}..0x{:X} in {} (stride 0x{:X}, {} records) via '{}'",
+            MPE_LOG_INFO("table at 0x{:X}..0x{:X} in {} (stride 0x{:X}, {} records) via '{}'",
                         table.begin, table.end, table.section_name, table.stride,
                         table.record_count, name);
         }
@@ -386,7 +386,7 @@ Expected<SymbolRegistry> SymbolRegistry::Discover(const ModuleImage& image,
         }
     }
 
-    FE_LOG_INFO("discovery indexed {} record(s) across {} table(s); {}/{} required, "
+    MPE_LOG_INFO("discovery indexed {} record(s) across {} table(s); {}/{} required, "
                 "{}/{} optional resolved",
                 registry.records_.size(), registry.tables_.size(),
                 config.required_symbols.size() - missing.size(), config.required_symbols.size(),
@@ -400,7 +400,7 @@ Expected<SymbolRegistry> SymbolRegistry::Discover(const ModuleImage& image,
                 joined += ", ";
             }
         }
-        FE_LOG_ERROR("discovery report follows:\n{}",
+        MPE_LOG_ERROR("discovery report follows:\n{}",
                      registry.BuildDiscoveryReport(config.required_symbols));
         return Error{ErrorCode::SymbolValidationFailed,
                      std::format("{} required symbol(s) could not be resolved: {}",
@@ -515,7 +515,7 @@ Expected<std::uint64_t> SymbolRegistry::ReadGlobalValue(std::string_view name) c
 std::string SymbolRegistry::BuildDiscoveryReport(
     const std::vector<std::string>& focus_names) const {
     std::string out;
-    out += "=== ForgeEvolved symbol discovery report ===\n";
+    out += "=== MultiplayerEvolved symbol discovery report ===\n";
     out += std::format("tables found    : {}\n", tables_.size());
     out += std::format("records indexed : {}\n", records_.size());
 
@@ -584,4 +584,4 @@ std::string SymbolRegistry::BuildDiscoveryReport(
     return out;
 }
 
-} // namespace fe::blam
+} // namespace mpe::blam
