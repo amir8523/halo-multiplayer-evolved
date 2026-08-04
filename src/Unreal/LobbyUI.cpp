@@ -64,7 +64,7 @@ constexpr LinearColour kBad        = {0.910F, 0.380F, 0.350F, 1.0F};
 constexpr LinearColour kWarn       = {0.960F, 0.760F, 0.300F, 1.0F};
 /// Barely there. The status panel reports on the session rather than being part of the
 /// layout, so it should read over the scene instead of punching a hole in it.
-constexpr LinearColour kStatusPanel = {0.020F, 0.040F, 0.055F, 0.30F};
+constexpr LinearColour kStatusPanel = {0.020F, 0.040F, 0.055F, 0.45F};
 
 /// The bars drawn behind the two mode buttons. Selection is shown by making one visible
 /// and the other not, so choosing a mode costs a visibility change rather than a rebuild.
@@ -1511,11 +1511,14 @@ Result BuildLobbyUI(const LobbyUIContext& context, const LobbyView& view,
 
     // Status, top right. Built here rather than per tab, because it describes the session
     // rather than whichever tab happens to be showing.
-    (void)builder.Panel(root, 1560.0F, 24.0F, 320.0F, 104.0F, kStatusPanel);
+    (void)builder.Panel(root, 1544.0F, 20.0F, 336.0F, 116.0F, kStatusPanel);
+    // A rule down the left edge, because a translucent panel over a starfield has no edge
+    // of its own to read against and simply disappears.
+    (void)builder.Panel(root, 1544.0F, 20.0F, 3.0F, 116.0F, kAccent);
     for (std::size_t line = 0; line < std::size(g_status_line); ++line) {
         g_status_line[line] =
-            builder.Text(root, 1576.0F, 36.0F + static_cast<float>(line) * 30.0F, 300.0F,
-                         24.0F, "", kTextDim, 16.0F);
+            builder.Text(root, 1562.0F, 32.0F + static_cast<float>(line) * 34.0F, 310.0F,
+                         30.0F, "", kText, 19.0F);
     }
 
     // Tabs, as real buttons so they can be pressed rather than only looked at.
@@ -1681,14 +1684,14 @@ void SetLobbyStatus(const LobbyUIContext& context, const LobbyStatus& status) {
     }
 
     builder.SetText(g_status_line[0], status.online ? "NET: ONLINE" : "NET: OFFLINE");
-    builder.SetTextAppearance(g_status_line[0], status.online ? kGood : kBad, 16.0F);
+    builder.SetTextAppearance(g_status_line[0], status.online ? kGood : kBad, 19.0F);
 
     builder.SetText(g_status_line[1], std::format("SESSION: {}", status.session));
-    builder.SetTextAppearance(g_status_line[1], status.invitable ? kGood : kTextDim, 16.0F);
+    builder.SetTextAppearance(g_status_line[1], status.invitable ? kGood : kText, 19.0F);
 
     builder.SetText(g_status_line[2], status.version);
     builder.SetTextAppearance(g_status_line[2],
-                              status.update_available ? kWarn : kTextDim, 16.0F);
+                              status.update_available ? kWarn : kText, 19.0F);
 
     for (const std::uintptr_t line : g_status_line) {
         builder.SetVisibilityOf(line, kHitTestInvisible);
