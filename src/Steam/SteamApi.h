@@ -284,17 +284,21 @@ void ActivateGameOverlayInviteDialog(SteamId lobby);
 /// setting is off and letting them conclude the mod is broken.
 [[nodiscard]] bool IsOverlayEnabled();
 
-/// A friend who is running this game right now.
+/// One person on the friends list, and whether they can act on an invite.
 struct GameFriend {
     SteamId     id{0};
     std::string name;
+    /// True when Steam reports them playing this game. Invites reach anybody, but only
+    /// somebody already in the game can accept one without a download first.
+    bool in_this_game{false};
 };
 
-/// Friends currently playing this game, so the lobby can offer them directly.
+/// The friends list, with the people playing this game sorted to the front.
 ///
 /// The overlay's invite dialog does not draw over this title, so the mod asks Steam who is
-/// available and presents them itself. Only people in this game are listed: inviting
-/// somebody who is not running it produces a notification they cannot act on.
+/// there and presents them itself. Everybody is listed rather than only players of this
+/// game: a friend who owns it and is online can still accept, and hiding them would leave
+/// an empty picker for no reason the player can see.
 [[nodiscard]] std::vector<GameFriend> FriendsInGame();
 
 /// Invites one person to a lobby. Independent of the overlay.
