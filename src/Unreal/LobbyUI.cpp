@@ -983,9 +983,13 @@ void FoldMenuAway(const LobbyUIContext& context) {
 /// frontend keeps handling input at the controller level: moving the mouse still played the
 /// menu's hover sounds for buttons that were no longer on screen. Taking focus is what
 /// makes the lobby a screen the player is actually on rather than a picture over one.
+/// Passing this as the widget hands focus back to the game viewport rather than to any
+/// particular widget. See FocusLobby for why that is the only way to give the menu back.
+constexpr std::uintptr_t kFocusTheViewport = 0;
+
 void FocusLobby(const LobbyUIContext& context, std::uintptr_t widget) {
     if (context.set_input_mode_ui == 0 || context.get_player_controller == 0 ||
-        context.widget_library == 0 || widget == 0) {
+        context.widget_library == 0) {
         MPE_LOG_WARN("input cannot be given to the lobby: focus functions were not resolved");
         return;
     }
@@ -1021,10 +1025,13 @@ void FocusLobby(const LobbyUIContext& context, std::uintptr_t widget) {
     mode.flush_input       = true;
     (void)CallFunction(context.widget_library, context.set_input_mode_ui, &mode);
 
-    if (context.set_keyboard_focus != 0) {
+    // Keyboard focus is only forced when there is a widget to force it onto. Doing it to
+    // the menu is what left it dead: see below.
+    if (widget != kFocusTheViewport && context.set_keyboard_focus != 0) {
         (void)CallFunction(widget, context.set_keyboard_focus, nullptr);
     }
-    MPE_LOG_INFO("input focus moved to the lobby (controller 0x{:X})",
+    MPE_LOG_INFO("input focus moved to {} (controller 0x{:X})",
+                widget == kFocusTheViewport ? "the game viewport" : "the lobby",
                 controller.return_value);
 }
 
@@ -1654,13 +1661,23 @@ void ShowLobbyUI(const LobbyUIContext& context, bool visible) {
 
     UnfoldMenu(context);
 
-    // Input has to go back with the menu.
+    // Input has to go back with the menu, and it has to go back to the viewport.
     //
     // Opening the lobby points the player controller's UI focus at the lobby widget. Simply
     // hiding that widget leaves the focus pointing at something collapsed, so the menu comes
-    // back on screen and answers nothing: every button on it is dead. Handing focus to the
-    // menu itself is what makes it usable again.
-    FocusLobby(context, context.outer);
+    // back on screen and answers nothing.
+    //
+    // Handing focus to the menu widget instead was no better, and this is the part that
+    // took a while to see. The menu is a UserWidget, and a UserWidget's own root is not
+    // focusable: the buttons under it are. Naming it as the focus target of a UI-only
+    // input mode therefore parks focus on something that accepts nothing, and since a
+    // UI-only mode routes everything through focus, the whole frontend stops answering
+    // and the game has to be closed from the desktop.
+    //
+    // Naming no widget at all is what the engine wants here. A UI-only input mode with no
+    // focus target focuses the game viewport, which is the state the menu was in before
+    // the lobby ever opened, and every widget under it hit tests normally again.
+    FocusLobby(context, kFocusTheViewport);
 }
 
 void SetLobbyTab(const LobbyUIContext& context, bool browsing) {
