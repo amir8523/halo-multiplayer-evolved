@@ -144,6 +144,7 @@ void SteamMatchmakingHooks::Leave() {
         MPE_LOG_INFO("left lobby {}", current_lobby_);
     }
     current_lobby_       = 0;
+    steam::SetCurrentLobby(0);
     is_owner_            = false;
     operation_in_flight_ = false;
     name_cache_.clear();
@@ -376,6 +377,7 @@ void SteamMatchmakingHooks::Dispatch(const Event& event, ILobbyBackendObserver& 
             current_lobby_       = event.lobby;
             is_owner_            = true;
             operation_in_flight_ = false;
+            steam::SetCurrentLobby(event.lobby);
 
             const Result published = PublishJoinMetadata();
             if (!published.ok()) {
@@ -413,12 +415,14 @@ void SteamMatchmakingHooks::Dispatch(const Event& event, ILobbyBackendObserver& 
             }
             current_lobby_       = event.lobby;
             operation_in_flight_ = false;
+            steam::SetCurrentLobby(event.lobby);
             RefreshOwnership();
             observer.OnLobbyEntered(event.lobby, is_owner_);
             return;
 
         case EventKind::LobbyEnterFailed:
             current_lobby_       = 0;
+    steam::SetCurrentLobby(0);
             is_owner_            = false;
             operation_in_flight_ = false;
             observer.OnLobbyEnterFailed(Error{event.error_code, event.detail});

@@ -124,6 +124,9 @@ struct Binding {
 
     PFN_Friends_GetPersonaName       friends_GetPersonaName{nullptr};
     PFN_Friends_GetFriendPersonaName friends_GetFriendPersonaName{nullptr};
+    int  (*friends_GetFriendCount)(void*, int){nullptr};
+    SteamId (*friends_GetFriendByIndex)(void*, int, int){nullptr};
+    bool (*mm_InviteUserToLobby)(void*, SteamId, SteamId){nullptr};
     PFN_Friends_ActivateInviteDialog friends_ActivateInviteDialog{nullptr};
     PFN_Friends_SetRichPresence      friends_SetRichPresence{nullptr};
 
@@ -132,6 +135,9 @@ struct Binding {
     PFN_MM_LeaveLobby            mm_LeaveLobby{nullptr};
     PFN_MM_SetLobbyData          mm_SetLobbyData{nullptr};
     PFN_MM_GetLobbyData          mm_GetLobbyData{nullptr};
+    void*                        utils{nullptr};
+    std::string                  utils_version;
+    bool (*utils_IsOverlayEnabled)(void*){nullptr};
     PFN_MM_SetLobbyMemberData    mm_SetLobbyMemberData{nullptr};
     PFN_MM_GetLobbyMemberData    mm_GetLobbyMemberData{nullptr};
     PFN_MM_GetNumLobbyMembers    mm_GetNumLobbyMembers{nullptr};
@@ -337,6 +343,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
     static constexpr const char* kNetUtilsVersions[]    = {"SteamNetworkingUtils004",
                                                            "SteamNetworkingUtils003",
                                                            "SteamNetworkingUtils002"};
+    static constexpr const char* kUtilsVersions[]       = {"SteamUtils010", "SteamUtils009",
+                                                           "SteamUtils008"};
     static constexpr const char* kNetSocketsVersions[]  = {"SteamNetworkingSockets012",
                                                            "SteamNetworkingSockets011",
                                                            "SteamNetworkingSockets009"};
@@ -345,6 +353,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                                       g_binding.user_version);
     g_binding.friends = AcquireInterface(user_handle, kFriendsVersions,
                                          std::size(kFriendsVersions), g_binding.friends_version);
+    g_binding.utils = AcquireInterface(user_handle, kUtilsVersions, std::size(kUtilsVersions),
+                                      g_binding.utils_version);
     g_binding.matchmaking = AcquireInterface(user_handle, kMatchmakingVersions,
                                              std::size(kMatchmakingVersions),
                                              g_binding.matchmaking_version);
@@ -379,6 +389,14 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                   g_binding.friends_GetPersonaName, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendPersonaName",
                   g_binding.friends_GetFriendPersonaName, missing);
+    (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendCount",
+                  g_binding.friends_GetFriendCount, missing);
+    (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendByIndex",
+                  g_binding.friends_GetFriendByIndex, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_InviteUserToLobby",
+                  g_binding.mm_InviteUserToLobby, missing);
+    (void)Resolve(module, "SteamAPI_ISteamUtils_IsOverlayEnabled",
+                  g_binding.utils_IsOverlayEnabled, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog",
                   g_binding.friends_ActivateInviteDialog, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_SetRichPresence",
@@ -501,12 +519,13 @@ bool HasNetworkingSockets() noexcept {
 std::string DescribeBinding() {
     return std::format(
         "steam binding: module={} owned={} user='{}' friends='{}' matchmaking='{}' "
-        "net_sockets='{}' net_utils='{}' networking_ready={} "
+        "utils='{}' net_sockets='{}' net_utils='{}' networking_ready={} "
         "[sizes identity={} msg={} conn_info={} rt_status={} status_cb={}]",
         static_cast<const void*>(g_binding.module), g_binding.owns_module,
         g_binding.user_version.empty() ? "none" : g_binding.user_version,
         g_binding.friends_version.empty() ? "none" : g_binding.friends_version,
         g_binding.matchmaking_version.empty() ? "none" : g_binding.matchmaking_version,
+        g_binding.utils_version.empty() ? "none" : g_binding.utils_version,
         g_binding.networking_sockets_version.empty() ? "none"
                                                      : g_binding.networking_sockets_version,
         g_binding.networking_utils_version.empty() ? "none" : g_binding.networking_utils_version,
@@ -579,6 +598,60 @@ const char* GetFriendPersonaName(SteamId user) {
     return g_binding.friends_GetFriendPersonaName(g_binding.friends, user);
 }
 
+/// Halo: Campaign Evolved on Steam. Used to tell a friend playing this game from a friend
+/// playing something else, since only the former can act on an invite.
+constexpr std::uint64_t kAppId = 2806050;
+
+std::vector<GameFriend> FriendsInGame() {
+    std::vector<GameFriend> found;
+    if (g_binding.friends_GetFriendCount == nullptr ||
+        g_binding.friends_GetFriendByIndex == nullptr || g_binding.friends == nullptr) {
+        return found;
+    }
+
+    // k_EFriendFlagImmediate: the ordinary friends list, not clan or group members.
+    constexpr int kImmediate = 0x04;
+    const int     count      = g_binding.friends_GetFriendCount(g_binding.friends, kImmediate);
+    for (int index = 0; index < count; ++index) {
+        const SteamId id =
+            g_binding.friends_GetFriendByIndex(g_binding.friends, index, kImmediate);
+        if (id == 0) {
+            continue;
+        }
+
+        // Deliberately not asking what game a friend is in.
+        //
+        // GetFriendGamePlayed writes a struct through a pointer the caller supplies, and
+        // doing that from here faulted inside steamclient while writing at offset four of
+        // it. Whatever the cause, an optional filter is not worth a crash in somebody's
+        // game, so the roster is taken unfiltered and the caller decides who to invite.
+
+        GameFriend entry;
+        entry.id = id;
+        if (const char* name = GetFriendPersonaName(id); name != nullptr) {
+            entry.name = name;
+        }
+        found.push_back(std::move(entry));
+    }
+    return found;
+}
+
+bool InviteUserToLobby(SteamId lobby, SteamId user) {
+    if (g_binding.mm_InviteUserToLobby == nullptr || g_binding.matchmaking == nullptr) {
+        return false;
+    }
+    return g_binding.mm_InviteUserToLobby(g_binding.matchmaking, lobby, user);
+}
+
+bool IsOverlayEnabled() {
+    if (g_binding.utils_IsOverlayEnabled == nullptr || g_binding.utils == nullptr) {
+        // Unknown rather than false. Reporting "off" because the binding is missing would
+        // send a player to change a setting that is already correct.
+        return true;
+    }
+    return g_binding.utils_IsOverlayEnabled(g_binding.utils);
+}
+
 void ActivateGameOverlayInviteDialog(SteamId lobby) {
     if (g_binding.friends_ActivateInviteDialog != nullptr && g_binding.friends != nullptr) {
         g_binding.friends_ActivateInviteDialog(g_binding.friends, lobby);
@@ -649,11 +722,54 @@ namespace {
 ///
 /// Steam answers a search with a count, and each entry is then read back by index. The
 /// results are kept here so a browser can redraw without asking Steam again on every frame.
+/// The lobby this process currently occupies, or zero.
+///
+/// Published by the matchmaking layer so the browser can leave it out of its own results.
+std::atomic<SteamId> g_current_lobby{0};
+
 std::mutex                g_browse_mutex;
 std::vector<LobbyListing> g_browse_results;
 int                       g_browse_count = 0;
 
 } // namespace
+
+/// Receives the result of RequestLobbyList.
+///
+/// Without this the search was started and its answer was never collected, so the count of
+/// matching lobbies stayed at zero and the browser was permanently empty. The host could
+/// not even see their own session, which is what made the fault obvious.
+///
+/// A file scope owner rather than a member, because the search is a property of the
+/// process: only one can be outstanding, and the last result set is what Steam keeps
+/// addressable by index.
+class LobbyListReceiver {
+public:
+    void Await(SteamApiCall call) {
+        result_.Set(call, this, &LobbyListReceiver::OnLobbyMatchList);
+    }
+
+private:
+    void OnLobbyMatchList(LobbyMatchListCallback* payload, bool io_failure) {
+        if (io_failure || payload == nullptr) {
+            SetBrowseResultCount(0);
+            MPE_LOG_WARN("the lobby search failed");
+            return;
+        }
+        SetBrowseResultCount(static_cast<int>(payload->m_nLobbiesMatching));
+        MPE_LOG_INFO("lobby search returned {} lobby(ies)",
+                     payload->m_nLobbiesMatching);
+    }
+
+    CallResult<LobbyListReceiver, LobbyMatchListCallback> result_;
+};
+
+LobbyListReceiver g_lobby_list_receiver;
+
+SteamId CurrentLobby() { return g_current_lobby.load(std::memory_order_acquire); }
+
+void SetCurrentLobby(SteamId lobby) {
+    g_current_lobby.store(lobby, std::memory_order_release);
+}
 
 void RequestLobbyList() {
     if (g_binding.mm_RequestLobbyList == nullptr || g_binding.matchmaking == nullptr) {
@@ -666,7 +782,12 @@ void RequestLobbyList() {
     if (g_binding.mm_AddResultCountFilter != nullptr) {
         g_binding.mm_AddResultCountFilter(g_binding.matchmaking, 50);
     }
-    (void)g_binding.mm_RequestLobbyList(g_binding.matchmaking);
+    const SteamApiCall call = g_binding.mm_RequestLobbyList(g_binding.matchmaking);
+    if (call == kInvalidApiCall) {
+        SetBrowseResultCount(0);
+        return;
+    }
+    g_lobby_list_receiver.Await(call);
 }
 
 std::vector<LobbyListing> BrowseLobbies() {
@@ -683,6 +804,16 @@ std::vector<LobbyListing> BrowseLobbies() {
         const SteamId lobby = g_binding.mm_GetLobbyByIndex(g_binding.matchmaking, index);
         if (lobby == 0) {
             break;
+        }
+
+        // Never the lobby this player is hosting.
+        //
+        // A host joining their own session would ask Steam to enter a lobby it is already
+        // the owner of, tear down the transport it is listening on, and leave the roster
+        // referring to a player who is both host and client. Simply not listing it is the
+        // only sane answer: there is nothing useful the host could do with the row.
+        if (lobby == CurrentLobby()) {
+            continue;
         }
 
         LobbyListing listing;

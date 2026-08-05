@@ -278,13 +278,15 @@ Result LobbyManager::JoinSession(LobbyId lobby) {
         return Result::Fail(ErrorCode::InvalidState,
                             std::format("cannot join while {}", ToString(phase_)));
     }
-    const engine::EngineCapabilities capabilities = engine_.Capabilities();
-    if (!capabilities.SufficientToJoin()) {
-        return Result::Fail(ErrorCode::InvalidState,
-                            std::format("this game build cannot join yet: {}",
-                                        capabilities.Describe()));
-    }
-
+    // No capability gate here, for the same reason there is none on hosting.
+    //
+    // Joining a lobby is entering a roster and a chat: it is how two people end up in the
+    // same place before anything is launched. Refusing it because the engine command
+    // binding is unfinished made the one thing this mod exists for impossible, since the
+    // second player was turned away before they ever reached the lobby.
+    //
+    // The launch path keeps its gate, so a match that cannot start is still refused, which
+    // is where the protection actually belongs.
     MPE_ASSIGN_OR_RETURN(const PlatformId local_id, backend_.LocalId());
     local_id_ = local_id;
     is_host_  = false;

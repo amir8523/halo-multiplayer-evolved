@@ -254,7 +254,7 @@ bool g_invite_pending = false;
 
 /// This build's version, compared against the newest GitHub release to decide whether the
 /// status panel should tell the player to update.
-constexpr const char* kModVersion = "0.1.1";
+constexpr const char* kModVersion = "0.1.2";
 
 /// The newest version seen on GitHub, empty until a check has succeeded.
 ///
@@ -717,6 +717,27 @@ void TickLoop() {
         }
 
         RefreshLobbyStatus();
+
+        // The browser refreshes itself while it is open.
+        //
+        // A lobby search is asynchronous: asking Steam and reading the answer in the same
+        // breath always reads the previous result, which on the first visit is nothing at
+        // all. Re-asking on a timer and redrawing from whatever has arrived means the list
+        // fills in on its own a moment after the tab is opened, with no refresh button to
+        // find.
+        if (g_screen == MultiplayerScreen::ServerBrowser && unreal::LobbyIsBuilt()) {
+            static auto s_last_search = std::chrono::steady_clock::time_point{};
+            const auto  now           = std::chrono::steady_clock::now();
+            if (now - s_last_search >= std::chrono::seconds(3)) {
+                s_last_search = now;
+                steam::RequestLobbyList();
+            }
+            static auto s_last_draw = std::chrono::steady_clock::time_point{};
+            if (now - s_last_draw >= std::chrono::seconds(1)) {
+                s_last_draw = now;
+                ApplyServerFilter();
+            }
+        }
 
         // Phase changes are logged, so a session that never becomes joinable says why
         // instead of simply never appearing.
@@ -1298,8 +1319,18 @@ void OpenSessionInvite() {
 
     g_invite_pending = false;
     PublishSessionDetails();
+
+    // Invited one person at a time, never in bulk.
+    //
+    // An earlier version invited every friend it could see the moment a slot was pressed.
+    // That is spam, and the call used to filter the list to people actually in this game
+    // crashed inside steamclient. Both are gone: the roster is read, reported, and the
+    // overlay is offered so a specific person can be chosen.
+    const std::vector<steam::GameFriend> friends = steam::FriendsInGame();
+    MPE_LOG_INFO("{} friend(s) available to invite to session {}", friends.size(), lobby);
+
     steam::ActivateGameOverlayInviteDialog(lobby);
-    MPE_LOG_INFO("invite overlay opened for session {}", lobby);
+    MPE_LOG_INFO("invite requested for session {}", lobby);
 }
 
 void InviteToSession(int team) {

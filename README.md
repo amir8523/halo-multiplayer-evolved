@@ -7,7 +7,7 @@
 
 **The multiplayer Halo: Campaign Evolved should have shipped with.**
 
-[![Version](https://img.shields.io/badge/version-0.1.1-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.1.2-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Download](https://img.shields.io/badge/download-latest%20release-2ea44f?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -98,8 +98,10 @@ What works today, honestly. Anything not yet tested says so.
 
 - The MULTIPLAYER menu entry, and the full lobby screen behind it
 - Mode and map selection
-- Team slots, and inviting people straight into your session
-- Server browser with mode, slots and ping filters
+- Team slots that invite friends straight into your session, with no Steam overlay
+  needed
+- Server browser with mode, slots and ping filters. Your own game is left out of
+  it, since joining yourself would only break the session you are hosting
 - Starting a match
 - Hosting a live session others can find and be invited into
 - Checking for, downloading and installing updates
@@ -109,6 +111,7 @@ What works today, honestly. Anything not yet tested says so.
 - The relay transport and listen server
 - The wire protocol and its authorization rules
 - Synchronized match launch
+- Joining somebody else's session
 
 **Not done yet**
 
