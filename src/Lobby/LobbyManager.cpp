@@ -251,6 +251,7 @@ Result LobbyManager::HostSession(const HostOptions& options) {
         is_host_ = false;
         return created;
     }
+    hosted_visibility_ = options.visibility;
 
     // The host occupies slot zero from the outset so the roster is never empty.
     players_.clear();
@@ -1956,11 +1957,17 @@ void LobbyManager::TransitionTo(LobbyPhase phase, std::string_view status_text) 
             MPE_LOG_DEBUG("publishing the phase failed: {}", published.message());
         }
         // Close the lobby to newcomers once a match is committed, so nobody joins
-        // into a load they cannot participate in.
+        // into a load they cannot participate in. Otherwise restore what the host
+        // actually asked for.
+        //
+        // This used to reopen every lobby as friends-only regardless. A friends-only
+        // Steam lobby is not returned by a lobby search at all, so a session hosted as
+        // public was quietly demoted the moment it finished being created and never
+        // appeared in anybody's server browser.
         const bool closed = (phase == LobbyPhase::Loading || phase == LobbyPhase::InMatch);
-        if (const Result visibility = backend_.SetVisibility(
-                closed ? LobbyVisibility::InviteOnly : LobbyVisibility::FriendsOnly);
-            !visibility.ok()) {
+        const LobbyVisibility wanted =
+            closed ? LobbyVisibility::InviteOnly : hosted_visibility_;
+        if (const Result visibility = backend_.SetVisibility(wanted); !visibility.ok()) {
             MPE_LOG_DEBUG("adjusting visibility failed: {}", visibility.message());
         }
     }

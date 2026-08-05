@@ -319,6 +319,8 @@ private:
     PlatformId  local_id_{0};
     LobbyId     lobby_id_{0};
     std::uint32_t max_players_{8};
+    /// What the host asked for, so a phase change can restore it rather than guess.
+    LobbyVisibility hosted_visibility_{LobbyVisibility::Public};
 
     engine::MatchSettings   settings_;
     std::vector<PlayerSlot> players_;
