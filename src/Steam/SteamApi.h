@@ -276,6 +276,13 @@ void RunCallbacks();
 [[nodiscard]] const char* GetPersonaName();
 [[nodiscard]] const char* GetFriendPersonaName(SteamId user);
 void ActivateGameOverlayInviteDialog(SteamId lobby);
+
+/// Whether Steam's in-game overlay is available in this process.
+///
+/// The invite dialog is drawn by the overlay, so with the overlay off the call succeeds and
+/// nothing appears. Knowing this is the difference between telling a player their Steam
+/// setting is off and letting them conclude the mod is broken.
+[[nodiscard]] bool IsOverlayEnabled();
 [[nodiscard]] bool SetRichPresence(const char* key, const char* value);
 
 // ---------------------------------------------------------------------------

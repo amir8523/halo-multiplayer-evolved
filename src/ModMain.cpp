@@ -1298,6 +1298,20 @@ void OpenSessionInvite() {
 
     g_invite_pending = false;
     PublishSessionDetails();
+
+    // Said plainly, because the call below succeeds either way.
+    //
+    // The invite dialog is drawn by Steam's overlay. With the overlay disabled the call
+    // returns cleanly and simply nothing appears, which is indistinguishable from a broken
+    // button unless somebody says so.
+    if (!steam::IsOverlayEnabled()) {
+        MPE_LOG_WARN("the Steam overlay is disabled, so the invite window cannot open. Turn "
+                     "it on in Steam under Settings, In Game, Enable the Steam Overlay while "
+                     "in-game. Your session is still live and listed, so anyone with the mod "
+                     "can find it in the server browser.");
+        return;
+    }
+
     steam::ActivateGameOverlayInviteDialog(lobby);
     MPE_LOG_INFO("invite overlay opened for session {}", lobby);
 }

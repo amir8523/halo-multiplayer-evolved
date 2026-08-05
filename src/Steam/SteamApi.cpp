@@ -132,6 +132,9 @@ struct Binding {
     PFN_MM_LeaveLobby            mm_LeaveLobby{nullptr};
     PFN_MM_SetLobbyData          mm_SetLobbyData{nullptr};
     PFN_MM_GetLobbyData          mm_GetLobbyData{nullptr};
+    void*                        utils{nullptr};
+    std::string                  utils_version;
+    bool (*utils_IsOverlayEnabled)(void*){nullptr};
     PFN_MM_SetLobbyMemberData    mm_SetLobbyMemberData{nullptr};
     PFN_MM_GetLobbyMemberData    mm_GetLobbyMemberData{nullptr};
     PFN_MM_GetNumLobbyMembers    mm_GetNumLobbyMembers{nullptr};
@@ -337,6 +340,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
     static constexpr const char* kNetUtilsVersions[]    = {"SteamNetworkingUtils004",
                                                            "SteamNetworkingUtils003",
                                                            "SteamNetworkingUtils002"};
+    static constexpr const char* kUtilsVersions[]       = {"SteamUtils010", "SteamUtils009",
+                                                           "SteamUtils008"};
     static constexpr const char* kNetSocketsVersions[]  = {"SteamNetworkingSockets012",
                                                            "SteamNetworkingSockets011",
                                                            "SteamNetworkingSockets009"};
@@ -345,6 +350,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                                       g_binding.user_version);
     g_binding.friends = AcquireInterface(user_handle, kFriendsVersions,
                                          std::size(kFriendsVersions), g_binding.friends_version);
+    g_binding.utils = AcquireInterface(user_handle, kUtilsVersions, std::size(kUtilsVersions),
+                                      g_binding.utils_version);
     g_binding.matchmaking = AcquireInterface(user_handle, kMatchmakingVersions,
                                              std::size(kMatchmakingVersions),
                                              g_binding.matchmaking_version);
@@ -379,6 +386,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                   g_binding.friends_GetPersonaName, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendPersonaName",
                   g_binding.friends_GetFriendPersonaName, missing);
+    (void)Resolve(module, "SteamAPI_ISteamUtils_IsOverlayEnabled",
+                  g_binding.utils_IsOverlayEnabled, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog",
                   g_binding.friends_ActivateInviteDialog, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_SetRichPresence",
@@ -577,6 +586,15 @@ const char* GetFriendPersonaName(SteamId user) {
         return nullptr;
     }
     return g_binding.friends_GetFriendPersonaName(g_binding.friends, user);
+}
+
+bool IsOverlayEnabled() {
+    if (g_binding.utils_IsOverlayEnabled == nullptr || g_binding.utils == nullptr) {
+        // Unknown rather than false. Reporting "off" because the binding is missing would
+        // send a player to change a setting that is already correct.
+        return true;
+    }
+    return g_binding.utils_IsOverlayEnabled(g_binding.utils);
 }
 
 void ActivateGameOverlayInviteDialog(SteamId lobby) {
