@@ -367,6 +367,17 @@ static_assert(offsetof(SteamNetConnectionStatusChangedCallback, m_info) == 8,
 static_assert(sizeof(SteamNetConnectionStatusChangedCallback) == 712,
               "SteamNetConnectionStatusChangedCallback must be 712 bytes");
 
+/// Result of RequestLobbyList.
+///
+/// Steam does not hand back the lobbies themselves, only how many matched. They are then
+/// read by index with GetLobbyByIndex, and the set stays addressable until the next search.
+struct LobbyMatchListCallback {
+    static constexpr int kCallbackId = kSteamMatchmakingCallbacksBase + 10; // 510
+
+    std::uint32_t m_nLobbiesMatching;
+};
+static_assert(sizeof(LobbyMatchListCallback) == 4, "LobbyMatchListCallback must be 4 bytes");
+
 struct LobbyCreatedCallback {
     static constexpr int kCallbackId = kSteamMatchmakingCallbacksBase + 13; // 513
 
