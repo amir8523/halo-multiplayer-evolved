@@ -126,7 +126,6 @@ struct Binding {
     PFN_Friends_GetFriendPersonaName friends_GetFriendPersonaName{nullptr};
     int  (*friends_GetFriendCount)(void*, int){nullptr};
     SteamId (*friends_GetFriendByIndex)(void*, int, int){nullptr};
-    bool (*friends_GetFriendGamePlayed)(void*, SteamId, void*){nullptr};
     bool (*mm_InviteUserToLobby)(void*, SteamId, SteamId){nullptr};
     PFN_Friends_ActivateInviteDialog friends_ActivateInviteDialog{nullptr};
     PFN_Friends_SetRichPresence      friends_SetRichPresence{nullptr};
@@ -394,8 +393,6 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                   g_binding.friends_GetFriendCount, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendByIndex",
                   g_binding.friends_GetFriendByIndex, missing);
-    (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendGamePlayed",
-                  g_binding.friends_GetFriendGamePlayed, missing);
     (void)Resolve(module, "SteamAPI_ISteamMatchmaking_InviteUserToLobby",
                   g_binding.mm_InviteUserToLobby, missing);
     (void)Resolve(module, "SteamAPI_ISteamUtils_IsOverlayEnabled",
@@ -622,22 +619,12 @@ std::vector<GameFriend> FriendsInGame() {
             continue;
         }
 
-        // FriendGameInfo_t begins with the game id; a friend in another game or none at all
-        // is not somebody who can act on an invite to this one.
-        if (g_binding.friends_GetFriendGamePlayed != nullptr) {
-            struct FriendGameInfo {
-                std::uint64_t game_id;
-                std::uint32_t game_ip;
-                std::uint16_t game_port;
-                std::uint16_t query_port;
-                std::uint64_t lobby;
-            };
-            FriendGameInfo info{};
-            if (!g_binding.friends_GetFriendGamePlayed(g_binding.friends, id, &info) ||
-                (info.game_id & 0xFFFFFFULL) != kAppId) {
-                continue;
-            }
-        }
+        // Deliberately not asking what game a friend is in.
+        //
+        // GetFriendGamePlayed writes a struct through a pointer the caller supplies, and
+        // doing that from here faulted inside steamclient while writing at offset four of
+        // it. Whatever the cause, an optional filter is not worth a crash in somebody's
+        // game, so the roster is taken unfiltered and the caller decides who to invite.
 
         GameFriend entry;
         entry.id = id;

@@ -1320,39 +1320,17 @@ void OpenSessionInvite() {
     g_invite_pending = false;
     PublishSessionDetails();
 
-    // Invited directly, without the overlay.
+    // Invited one person at a time, never in bulk.
     //
-    // Steam's invite dialog is drawn by the in-game overlay, and the overlay does not draw
-    // over this title: the call returned cleanly and nothing ever appeared, which is
-    // indistinguishable from a dead button. Asking Steam who is playing and inviting them
-    // ourselves needs no overlay at all.
-    //
-    // Only friends actually in this game are invited. An invite to somebody running
-    // something else is a notification they cannot act on.
+    // An earlier version invited every friend it could see the moment a slot was pressed.
+    // That is spam, and the call used to filter the list to people actually in this game
+    // crashed inside steamclient. Both are gone: the roster is read, reported, and the
+    // overlay is offered so a specific person can be chosen.
     const std::vector<steam::GameFriend> friends = steam::FriendsInGame();
-    if (friends.empty()) {
-        MPE_LOG_WARN("nobody on your friends list is in the game right now, so there is "
-                     "nobody to invite. Your session is live and listed, so anyone with the "
-                     "mod can still find it in the server browser.");
-        return;
-    }
+    MPE_LOG_INFO("{} friend(s) available to invite to session {}", friends.size(), lobby);
 
-    int invited = 0;
-    for (const steam::GameFriend& person : friends) {
-        if (steam::InviteUserToLobby(lobby, person.id)) {
-            ++invited;
-            MPE_LOG_INFO("invited {} to session {}", person.name, lobby);
-        } else {
-            MPE_LOG_WARN("could not invite {}", person.name);
-        }
-    }
-    MPE_LOG_INFO("{} of {} friend(s) in game were invited", invited, friends.size());
-
-    // The overlay is still asked for when it is available, because it is the familiar way
-    // to pick somebody specific. It is no longer what the feature depends on.
-    if (steam::IsOverlayEnabled()) {
-        steam::ActivateGameOverlayInviteDialog(lobby);
-    }
+    steam::ActivateGameOverlayInviteDialog(lobby);
+    MPE_LOG_INFO("invite requested for session {}", lobby);
 }
 
 void InviteToSession(int team) {
