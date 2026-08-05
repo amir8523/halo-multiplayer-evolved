@@ -283,6 +283,22 @@ void ActivateGameOverlayInviteDialog(SteamId lobby);
 /// nothing appears. Knowing this is the difference between telling a player their Steam
 /// setting is off and letting them conclude the mod is broken.
 [[nodiscard]] bool IsOverlayEnabled();
+
+/// A friend who is running this game right now.
+struct GameFriend {
+    SteamId     id{0};
+    std::string name;
+};
+
+/// Friends currently playing this game, so the lobby can offer them directly.
+///
+/// The overlay's invite dialog does not draw over this title, so the mod asks Steam who is
+/// available and presents them itself. Only people in this game are listed: inviting
+/// somebody who is not running it produces a notification they cannot act on.
+[[nodiscard]] std::vector<GameFriend> FriendsInGame();
+
+/// Invites one person to a lobby. Independent of the overlay.
+[[nodiscard]] bool InviteUserToLobby(SteamId lobby, SteamId user);
 [[nodiscard]] bool SetRichPresence(const char* key, const char* value);
 
 // ---------------------------------------------------------------------------
@@ -323,6 +339,10 @@ void RequestLobbyList();
 
 /// Records how many lobbies the last search returned.
 void SetBrowseResultCount(int count);
+
+/// The lobby this process occupies, so the browser can leave it out of its own results.
+[[nodiscard]] SteamId CurrentLobby();
+void SetCurrentLobby(SteamId lobby);
 [[nodiscard]] bool SetLobbyType(SteamId lobby, ELobbyType type);
 
 // ---------------------------------------------------------------------------
