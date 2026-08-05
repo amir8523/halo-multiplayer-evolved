@@ -510,12 +510,13 @@ bool HasNetworkingSockets() noexcept {
 std::string DescribeBinding() {
     return std::format(
         "steam binding: module={} owned={} user='{}' friends='{}' matchmaking='{}' "
-        "net_sockets='{}' net_utils='{}' networking_ready={} "
+        "utils='{}' net_sockets='{}' net_utils='{}' networking_ready={} "
         "[sizes identity={} msg={} conn_info={} rt_status={} status_cb={}]",
         static_cast<const void*>(g_binding.module), g_binding.owns_module,
         g_binding.user_version.empty() ? "none" : g_binding.user_version,
         g_binding.friends_version.empty() ? "none" : g_binding.friends_version,
         g_binding.matchmaking_version.empty() ? "none" : g_binding.matchmaking_version,
+        g_binding.utils_version.empty() ? "none" : g_binding.utils_version,
         g_binding.networking_sockets_version.empty() ? "none"
                                                      : g_binding.networking_sockets_version,
         g_binding.networking_utils_version.empty() ? "none" : g_binding.networking_utils_version,
