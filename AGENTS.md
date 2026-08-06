@@ -94,6 +94,10 @@ The mod shares a process with a game that saturates every core while loading.
   second instead of once pushed time-to-main-menu from 25 seconds to over five minutes.
 - **Cache anything whose address does not change.** UFunction addresses, widget classes and
   the menu button plan are resolved once and kept; only the live menu instance varies.
+- **Turning FNames into strings is what a scan actually costs**, not the walking.
+  `ForEach` resolves two per object, so a pass is ~100,000 lookups and allocations. Use
+  `ForEachRaw`, judge each *class* once and keep the verdict against its FName index, and
+  resolve an object's own name only when its class can hold something you want.
 - **Gate a scan on `Count()` changing.** It is a single read, and nothing new can appear
   without it moving.
 - Prefer the fast path in `TryFastReflection` (reads globals out of instructions, ~2s) over

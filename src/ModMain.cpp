@@ -2298,102 +2298,173 @@ void MaintainMainMenuButton() {
         }
         s_skipped_scans = 0;
         s_last_count    = count;
-        // The menu, and the panels the frontend draws beside it rather than inside it,
-        // in one pass that resolves no names.
+        // One pass that resolves a name only when it can possibly matter.
         //
-        // Both are collected here on purpose. Deferring the panels to a later poll to let
-        // this pass stop early looked like a clean saving and was not: the function returns
-        // early once the menu is decorated, so the later poll never came, and the lobby
-        // opened with an empty fold list. The fireteam panel then stayed on screen over the
-        // lobby, which is the exact bug this list exists to prevent.
+        // Both the menu and the panels beside it are collected here on purpose.
+        // Deferring the panels to a later poll so this could stop early looked like a
+        // clean saving and was not: the function returns early once the menu is
+        // decorated, so the later poll never came, the fold list stayed empty, and the
+        // fireteam panel sat drawn over the lobby.
         //
-        // What made the pass expensive was never the walking, it was that every object had
-        // two FNames turned into strings so a handful of class names could be compared.
-        // Fifty thousand objects is a hundred thousand pool lookups and allocations, and
-        // it was most of the delay between the menu being drawn and the entry appearing on
-        // it. An FName index compares as an integer, so the names are resolved once, kept,
-        // and compared as numbers.
+        // What made the pass expensive was never the walking. Every object had two
+        // FNames turned into strings so that a handful of names could be compared
+        // against them, which is a hundred thousand lookups and allocations for fifty
+        // thousand objects.
         //
-        // The fireteam list survives collapsing the menu, so it is not part of it.
-        // Filtered on the resolved class name, not on a name pool lookup.
-        //
-        // An earlier attempt resolved each class name to an FName index once and compared
-        // integers, which is far cheaper per object and completely wrong here: FindIndexOf
-        // searches a bounded number of blocks, this pool has a hundred and forty one of
-        // them, and the frontend's classes do not live in the first thirty two. It found
-        // nothing, returned early on every poll, and the entry never appeared at all.
-        //
-        // A cheaper filter has to key on something already known to be correct rather than
-        // on a search that can silently come up empty.
-        // The entry's own pieces come out of this pass too.
-        //
-        // They do not change for the life of the process, and resolving them used to be a
-        // second walk of the array immediately after this one, at the moment the player is
-        // looking at a menu with no entry on it. This pass already visits every object with
-        // its names resolved, so collecting them here costs a few comparisons and removes
-        // the second walk entirely.
-        unreal::MenuButtonPlan pieces;
+        // There are only a few hundred distinct classes among those objects, so each
+        // class is judged once by name and the verdict kept against its FName index.
+        // After that an object costs one integer hash lookup, and its own name is
+        // resolved only when its class is one of the few that can hold something
+        // wanted. The judging still uses real resolved names rather than a name pool
+        // search, because a bounded search silently finds nothing here and once
+        // removed the menu entry entirely.
+        enum class Kind : std::uint8_t {
+            Ignore,
+            Menu,
+            FoldsWithMenu,
+            Function,
+            ClassObject,
+            WidgetLibrary,
+            TextLibrary,
+            Controller,
+        };
+        static std::unordered_map<std::uint32_t, Kind> s_class_kind;
+
+        // Kept across polls, so a piece found while the game was still loading is not
+        // looked for again once the menu appears.
+        static unreal::MenuButtonPlan s_pieces;
 
         std::vector<std::uintptr_t> beside;
-        g_state->objects->ForEach([&](const unreal::ObjectInfo& object) {
-            const bool is_default = object.name.rfind("Default__", 0) == 0;
+        const unreal::NamePool&     names = *g_state->names;
 
-            if (pieces.button_class == 0 &&
-                object.name == "WBP_MeteoriteStandaloneButtonDefault_C" &&
-                object.class_name.find("Class") != std::string::npos) {
-                pieces.button_class = object.address;
-            } else if (pieces.widget_library == 0 &&
-                       object.name == "Default__WidgetBlueprintLibrary") {
-                pieces.widget_library = object.address;
-            } else if (pieces.text_library == 0 &&
-                       object.name == "Default__KismetTextLibrary") {
-                pieces.text_library = object.address;
-            } else if (object.class_name == "Function") {
-                if (pieces.create_function == 0 && object.name == "Create") {
-                    pieces.create_function = object.address;
-                } else if (pieces.add_child_function == 0 && object.name == "AddChild") {
-                    pieces.add_child_function = object.address;
-                } else if (pieces.remove_child_function == 0 &&
-                           object.name == "RemoveChild") {
-                    pieces.remove_child_function = object.address;
-                } else if (pieces.convert_function == 0 &&
-                           object.name == "Conv_StringToText") {
-                    pieces.convert_function = object.address;
+        g_state->objects->ForEachRaw([&](const unreal::ObjectArray::RawObject& object) {
+            Kind       kind  = Kind::Ignore;
+            const auto known = s_class_kind.find(object.class_name_index);
+            if (known != s_class_kind.end()) {
+                kind = known->second;
+            } else {
+                const Expected<std::string> cls = names.Resolve(object.class_name_index);
+                if (cls.ok()) {
+                    const std::string& text = cls.value();
+                    if (text == "WBP_MainMenu_C") {
+                        kind = Kind::Menu;
+                    } else if (text.rfind("WBP_Squad", 0) == 0 ||
+                               text == "WBP_MeteoriteUILayout_C" ||
+                               text.rfind("WBP_MeteoriteBoundActionBar", 0) == 0) {
+                        kind = Kind::FoldsWithMenu;
+                    } else if (text == "Function") {
+                        kind = Kind::Function;
+                    } else if (text == "WidgetBlueprintLibrary") {
+                        kind = Kind::WidgetLibrary;
+                    } else if (text == "KismetTextLibrary") {
+                        kind = Kind::TextLibrary;
+                    } else if (text.find("PlayerController") != std::string::npos &&
+                               text.find("Component") == std::string::npos) {
+                        kind = Kind::Controller;
+                    } else if (text.find("Class") != std::string::npos) {
+                        kind = Kind::ClassObject;
+                    }
                 }
-            } else if (!is_default && pieces.controller == 0 &&
-                       object.class_name.find("PlayerController") != std::string::npos &&
-                       object.class_name.find("Component") == std::string::npos &&
-                       object.name.find("_GEN_VARIABLE") == std::string::npos) {
-                pieces.controller = object.address;
+                s_class_kind.emplace(object.class_name_index, kind);
             }
 
-            if (is_default) {
+            if (kind == Kind::Ignore) {
                 return true;
             }
-            if (object.class_name == "WBP_MainMenu_C") {
-                menu = object.address;
-            } else if (object.class_name.rfind("WBP_Squad", 0) == 0 ||
-                       object.class_name == "WBP_MeteoriteUILayout_C" ||
-                       object.class_name.rfind("WBP_MeteoriteBoundActionBar", 0) == 0) {
-                // The frontend's layout, not just the squad panel.
-                //
-                // Folding every squad widget still left the fireteam audible, so what
-                // answers the mouse is not a squad widget at all: it is the layout the
-                // frontend wraps around the menu, which owns the fireteam area and the
-                // action bar. Collapsing the menu removed the menu's sounds because it
-                // removed the whole widget that owned them, and this is the same move
-                // applied to the thing that owns the rest.
-                // The whole family, not just the panel.
-                //
-                // Collapsing WBP_SquadWidget_C alone made the fireteam disappear and left
-                // it audible: hovering where it had been still played its sounds. A
-                // collapsed widget cannot be hit tested, so the rows that answered the
-                // mouse were never inside the widget that was collapsed. The list entries
-                // are their own widgets and have to be folded in their own right.
-                beside.push_back(object.address);
+
+            // Functions and blueprint classes are numerous, so they stop being examined
+            // the moment what was wanted among them has been found.
+            switch (kind) {
+                case Kind::Function:
+                    if (s_pieces.create_function != 0 && s_pieces.add_child_function != 0 &&
+                        s_pieces.remove_child_function != 0 &&
+                        s_pieces.convert_function != 0) {
+                        return true;
+                    }
+                    break;
+                case Kind::ClassObject:
+                    if (s_pieces.button_class != 0) {
+                        return true;
+                    }
+                    break;
+                case Kind::WidgetLibrary:
+                    if (s_pieces.widget_library != 0) {
+                        return true;
+                    }
+                    break;
+                case Kind::TextLibrary:
+                    if (s_pieces.text_library != 0) {
+                        return true;
+                    }
+                    break;
+                case Kind::Controller:
+                    if (s_pieces.controller != 0) {
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            const Expected<std::string> own = names.Resolve(object.name_index);
+            if (!own.ok()) {
+                return true;
+            }
+            const std::string& text       = own.value();
+            const bool         is_default = text.rfind("Default__", 0) == 0;
+
+            switch (kind) {
+                case Kind::Menu:
+                    if (!is_default) {
+                        menu = object.address;
+                    }
+                    break;
+                case Kind::FoldsWithMenu:
+                    // The frontend's layout owns the fireteam area and the action bar,
+                    // and the squad rows are their own widgets, so each is folded in its
+                    // own right. Collapsing the menu alone left them drawn and audible.
+                    if (!is_default) {
+                        beside.push_back(object.address);
+                    }
+                    break;
+                case Kind::Function:
+                    if (text == "Create") {
+                        s_pieces.create_function = object.address;
+                    } else if (text == "AddChild") {
+                        s_pieces.add_child_function = object.address;
+                    } else if (text == "RemoveChild") {
+                        s_pieces.remove_child_function = object.address;
+                    } else if (text == "Conv_StringToText") {
+                        s_pieces.convert_function = object.address;
+                    }
+                    break;
+                case Kind::ClassObject:
+                    if (text == "WBP_MeteoriteStandaloneButtonDefault_C") {
+                        s_pieces.button_class = object.address;
+                    }
+                    break;
+                case Kind::WidgetLibrary:
+                    if (text == "Default__WidgetBlueprintLibrary") {
+                        s_pieces.widget_library = object.address;
+                    }
+                    break;
+                case Kind::TextLibrary:
+                    if (text == "Default__KismetTextLibrary") {
+                        s_pieces.text_library = object.address;
+                    }
+                    break;
+                case Kind::Controller:
+                    if (!is_default && text.find("_GEN_VARIABLE") == std::string::npos) {
+                        s_pieces.controller = object.address;
+                    }
+                    break;
+                case Kind::Ignore:
+                    break;
             }
             return true;
         });
+
+        const unreal::MenuButtonPlan pieces = s_pieces;
         g_lobby_ui.also_fold = beside;
         unreal::SeedMenuButtonPlan(pieces);
     }
