@@ -2916,8 +2916,21 @@ void SweepForCombatFields(
 }
 
 void Initialize() {
-    log::Initialize(DataDirectory() / "MultiplayerEvolved.log", log::Level::Info);
-    MPE_LOG_INFO("MultiplayerEvolved {} starting", MPE_VERSION_STRING);
+    // Debug by default, and a file next to the mod turns it up further.
+    //
+    // The parts that are hardest to fix are the ones that need two people in two copies of
+    // the game at the same time, and a report of one of those is only as good as what was
+    // written down while it happened. Info alone left out the phase by phase detail of a
+    // join, which is exactly the part nobody can reconstruct afterwards. Dropping to Debug
+    // costs a larger file and nothing else that matters here.
+    //
+    // MultiplayerEvolved/trace.on adds every packet and every reflection lookup, which is
+    // only worth having when a specific question needs it.
+    const log::Level level =
+        DisableFlagPresent(L"trace.on") ? log::Level::Trace : log::Level::Debug;
+    log::Initialize(DataDirectory() / "MultiplayerEvolved.log", level);
+    MPE_LOG_INFO("MultiplayerEvolved {} starting, logging at {}", MPE_VERSION_STRING,
+                log::ToString(level));
     MPE_LOG_INFO("game build: {}", GameBuildString());
     MPE_LOG_INFO("data directory: {}", DataDirectory().string());
 
