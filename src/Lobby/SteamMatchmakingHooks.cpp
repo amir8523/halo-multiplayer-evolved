@@ -56,6 +56,10 @@ Expected<std::unique_ptr<SteamMatchmakingHooks>> SteamMatchmakingHooks::CreateIn
     hooks->rich_presence_join_callback_.Register(
         hooks.get(), &SteamMatchmakingHooks::OnRichPresenceJoinRequested);
 
+    // What the browser searches for, set from the same constant the host publishes so a
+    // search and an advertisement can never be looking for different things.
+    steam::SetBrowseMarker(keys::kBrowseMarker, std::to_string(net::kProtocolVersion));
+
     MPE_LOG_INFO("steam matchmaking hooks registered for user {}", local);
     return hooks;
 }
@@ -474,6 +478,10 @@ void SteamMatchmakingHooks::RefreshOwnership() {
 Result SteamMatchmakingHooks::PublishJoinMetadata() {
     MPE_ASSIGN_OR_RETURN(const PlatformId local_id, LocalId());
 
+    // First, and checked, because the server browser's Steam side filter matches on it.
+    // A lobby without it is invisible to everybody searching, however well the rest of
+    // the session works.
+    MPE_TRY(SetLobbyData(keys::kBrowseMarker, std::to_string(net::kProtocolVersion)));
     MPE_TRY(SetLobbyData(keys::kProtocolVersion, std::to_string(net::kProtocolVersion)));
     MPE_TRY(SetLobbyData(keys::kGameBuild, GameBuildString()));
     MPE_TRY(SetLobbyData(keys::kHostId, std::to_string(local_id)));

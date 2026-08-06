@@ -329,7 +329,24 @@ struct LobbyListing {
     int         members{0};
     int         capacity{0};
     int         ping_milliseconds{0};
+    /// The host's Steam id as text. Present on every lobby this mod created, which is
+    /// what tells one apart from the game's own fireteam lobbies.
+    std::string host_id;
+    /// What the session is doing, as the host last published it: hosting, in_match and
+    /// so on. Empty when the host has not published one yet.
+    std::string phase;
 };
+
+/// Sets the key and value that marks a lobby as one of this mod's.
+///
+/// Both the search filter and the listing check use it, so the two can never disagree
+/// about what counts as ours. They did once: the reader looked for a key named after the
+/// project's old name that no writer had ever set, and the browser silently returned
+/// nothing forever.
+///
+/// The value carries the protocol version, so a search only ever returns sessions this
+/// build can actually speak to.
+void SetBrowseMarker(std::string_view key, std::string_view value);
 
 /// Asks Steam for public lobbies advertising this game.
 ///

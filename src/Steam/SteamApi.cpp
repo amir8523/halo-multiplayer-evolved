@@ -149,6 +149,7 @@ struct Binding {
     PFN_MM_RequestLobbyList      mm_RequestLobbyList{nullptr};
     PFN_MM_GetLobbyByIndex       mm_GetLobbyByIndex{nullptr};
     PFN_MM_AddDistanceFilter     mm_AddDistanceFilter{nullptr};
+    void (*mm_AddStringFilter)(void*, const char*, const char*, int){nullptr};
     PFN_MM_AddResultCountFilter  mm_AddResultCountFilter{nullptr};
     PFN_MM_GetLobbyMemberLimit   mm_GetLobbyMemberLimit{nullptr};
 
@@ -495,6 +496,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                   g_binding.mm_RequestLobbyList, missing);
     (void)Resolve(module, "SteamAPI_ISteamMatchmaking_GetLobbyByIndex",
                   g_binding.mm_GetLobbyByIndex, missing);
+    (void)Resolve(module, "SteamAPI_ISteamMatchmaking_AddRequestLobbyListStringFilter",
+                  g_binding.mm_AddStringFilter, missing);
     (void)Resolve(module, "SteamAPI_ISteamMatchmaking_AddRequestLobbyListDistanceFilter",
                   g_binding.mm_AddDistanceFilter, missing);
     (void)Resolve(module, "SteamAPI_ISteamMatchmaking_AddRequestLobbyListResultCountFilter",
@@ -903,6 +906,12 @@ std::mutex                g_browse_mutex;
 std::vector<LobbyListing> g_browse_results;
 int                       g_browse_count = 0;
 
+/// The key and value that identify a lobby as this mod's, shared by the search filter and
+/// the listing check so the two cannot drift apart. They did once, and the browser
+/// returned nothing for it.
+std::string g_browse_marker_key;
+std::string g_browse_marker_value;
+
 } // namespace
 
 /// Receives the result of RequestLobbyList.
@@ -947,6 +956,28 @@ void RequestLobbyList() {
     if (g_binding.mm_RequestLobbyList == nullptr || g_binding.matchmaking == nullptr) {
         return;
     }
+
+    // Filtered by Steam, not only by us.
+    //
+    // Every lobby this app has open is a candidate, and the game opens Steam lobbies for
+    // its own co-op fireteams. Asking for fifty and discarding the ones that are not ours
+    // means fifty fireteams can fill the answer and leave no room for a single session
+    // this mod hosts, on a search that reported success. Asking Steam to match the marker
+    // makes the fifty ours.
+    std::string marker_key;
+    std::string marker_value;
+    {
+        // Copied under the lock. The marker is written from the lobby layer's thread and
+        // read from whichever thread refreshes the browser.
+        std::lock_guard lock(g_browse_mutex);
+        marker_key   = g_browse_marker_key;
+        marker_value = g_browse_marker_value;
+    }
+    if (g_binding.mm_AddStringFilter != nullptr && !marker_key.empty()) {
+        g_binding.mm_AddStringFilter(g_binding.matchmaking, marker_key.c_str(),
+                                     marker_value.c_str(), 0 /* equal */);
+    }
+
     // Worldwide, and capped, so a browser cannot be handed an unbounded list.
     if (g_binding.mm_AddDistanceFilter != nullptr) {
         g_binding.mm_AddDistanceFilter(g_binding.matchmaking, 3 /* worldwide */);
@@ -960,6 +991,13 @@ void RequestLobbyList() {
         return;
     }
     g_lobby_list_receiver.Await(call);
+}
+
+void SetBrowseMarker(std::string_view key, std::string_view value) {
+    std::lock_guard lock(g_browse_mutex);
+    g_browse_marker_key.assign(key);
+    g_browse_marker_value.assign(value);
+    MPE_LOG_INFO("browse marker is '{}' = '{}'", g_browse_marker_key, g_browse_marker_value);
 }
 
 std::vector<LobbyListing> BrowseLobbies() {
@@ -1004,11 +1042,26 @@ std::vector<LobbyListing> BrowseLobbies() {
             listing.capacity = g_binding.mm_GetLobbyMemberLimit(g_binding.matchmaking, lobby);
         }
 
-        // Only lobbies this mod advertised are shown. Without the marker the list would
-        // include every unrelated lobby the app has open.
-        if (read("forge_evolved").empty()) {
+        // Only lobbies this mod advertised are shown. Without a marker the list would
+        // include every unrelated lobby the app has open, the game's own fireteam first
+        // among them.
+        //
+        // The marker is fe.host, which the backend writes to every lobby it creates,
+        // before anyone is told the lobby exists. It used to be a key named
+        // forge_evolved, which nothing has ever written: the project was renamed and the
+        // reader kept the old name while no writer was left to match it. Every lobby
+        // therefore failed this test, and the server browser could not return a row under
+        // any circumstances. It was reported as refreshing many times and never finding a
+        // game, which is exactly what it would do.
+        listing.host_id = read("fe.host");
+        if (listing.host_id.empty()) {
             continue;
         }
+
+        // The phase decides whether a row is joinable, not whether it is listed. A game
+        // in progress is worth seeing.
+        listing.phase = read("fe.phase");
+
         g_browse_results.push_back(std::move(listing));
     }
     return g_browse_results;
