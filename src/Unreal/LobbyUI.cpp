@@ -111,15 +111,19 @@ std::uintptr_t g_empty_notice     = 0;
 /// The status panel's three lines, top right of the screen.
 std::uintptr_t g_status_line[3] = {0, 0, 0};
 
-/// The restart notice, top left, shown only once a new build is waiting.
+/// The notice panel, top left. Empty and collapsed unless there is something to say.
 ///
-/// Separate from the status line rather than another entry on it. A player who does not
-/// restart goes on playing the old build against people running the new one, which is the
-/// kind of mismatch that shows up as a session that fails for no visible reason, so it is
-/// worth more room than a third of a small panel.
-std::uintptr_t g_restart_panel   = 0;
-std::uintptr_t g_restart_rule    = 0;
-std::uintptr_t g_restart_line[2] = {0, 0};
+/// Separate from the status line rather than another entry on it, because the things that
+/// belong here are sentences. A staged update the player has to restart for, and a session
+/// error explaining why a join failed, are both useless abbreviated, and the status line
+/// gives a line about three hundred points to work with.
+///
+/// One title line and two detail lines, so a message of any ordinary length wraps rather
+/// than being cut off at whatever word happens to land on the edge.
+std::uintptr_t g_notice_panel     = 0;
+std::uintptr_t g_notice_rule      = 0;
+std::uintptr_t g_notice_title     = 0;
+std::uintptr_t g_notice_detail[2] = {0, 0};
 
 /// One team slot's widgets, so a player joining rewrites a card instead of the screen.
 ///
@@ -1351,10 +1355,11 @@ void RemoveLobbyUI(const LobbyUIContext& context) {
     g_browse_tab        = 0;
     g_invite_panel      = 0;
     g_invite_open       = false;
-    g_restart_panel     = 0;
-    g_restart_rule      = 0;
-    g_restart_line[0]   = 0;
-    g_restart_line[1]   = 0;
+    g_notice_panel      = 0;
+    g_notice_rule       = 0;
+    g_notice_title      = 0;
+    g_notice_detail[0]  = 0;
+    g_notice_detail[1]  = 0;
     g_friend_empty      = 0;
     g_friend_page       = 0;
     for (FriendRowWidgets& row : g_friend_row) {
@@ -1736,14 +1741,18 @@ Result BuildLobbyUI(const LobbyUIContext& context, const LobbyView& view,
                          30.0F, "", kText, 19.0F);
     }
 
-    // The restart notice, opposite the status panel. Built collapsed; SetLobbyStatus is
+    // The notice panel, opposite the status panel. Built collapsed; SetLobbyStatus is
     // what decides whether there is anything to say.
-    g_restart_panel = builder.Panel(root, 44.0F, 20.0F, 540.0F, 92.0F, kStatusPanel);
-    g_restart_rule  = builder.Panel(root, 44.0F, 20.0F, 3.0F, 92.0F, kWarn);
-    g_restart_line[0] = builder.Text(root, 62.0F, 32.0F, 510.0F, 32.0F, "", kWarn, 21.0F);
-    g_restart_line[1] = builder.Text(root, 62.0F, 66.0F, 510.0F, 30.0F, "", kText, 18.0F);
-    for (const std::uintptr_t widget : {g_restart_panel, g_restart_rule, g_restart_line[0],
-                                        g_restart_line[1]}) {
+    g_notice_panel = builder.Panel(root, 44.0F, 20.0F, 560.0F, 122.0F, kStatusPanel);
+    g_notice_rule  = builder.Panel(root, 44.0F, 20.0F, 3.0F, 122.0F, kWarn);
+    g_notice_title = builder.Text(root, 62.0F, 30.0F, 530.0F, 32.0F, "", kWarn, 21.0F);
+    for (std::size_t line = 0; line < std::size(g_notice_detail); ++line) {
+        g_notice_detail[line] =
+            builder.Text(root, 62.0F, 66.0F + static_cast<float>(line) * 26.0F, 530.0F, 26.0F,
+                         "", kText, 17.0F);
+    }
+    for (const std::uintptr_t widget : {g_notice_panel, g_notice_rule, g_notice_title,
+                                        g_notice_detail[0], g_notice_detail[1]}) {
         builder.SetVisibilityOf(widget, kCollapsedValue);
     }
 
@@ -2036,23 +2045,39 @@ void SetLobbyStatus(const LobbyUIContext& context, const LobbyStatus& status) {
         builder.SetVisibilityOf(line, kHitTestInvisible);
     }
 
-    // The restart notice. Said in two parts on purpose: what happened, then what the
-    // player has to do about it, because the second half is the only part that is an
-    // instruction and it is the half that gets skipped when it is buried in a sentence.
-    if (status.restart_required) {
-        builder.SetTextLive(g_restart_line[0],
-                            status.staged_version.empty()
-                                ? std::string{"UPDATE INSTALLED"}
-                                : std::format("UPDATE {} INSTALLED", status.staged_version));
-        builder.SetTextLive(g_restart_line[1], "QUIT AND RELAUNCH THE GAME TO USE IT");
+    // The notice panel. Shown only when there is something worth a whole sentence.
+    const bool notice = !status.notice_title.empty();
+    if (notice) {
+        builder.SetTextLive(g_notice_title, status.notice_title);
+
+        // Wrapped here rather than by the text block.
+        //
+        // A block given more text than fits simply stops drawing at the edge, which is
+        // how "ERROR: the host did" reached a player as the entire explanation of a
+        // failed join. Breaking on spaces at a width the panel can hold means a long
+        // message loses nothing.
+        constexpr std::size_t kPerLine = 60;
+        std::string_view      rest     = status.notice_detail;
+        for (std::size_t line = 0; line < std::size(g_notice_detail); ++line) {
+            std::string_view take = rest.substr(0, std::min(rest.size(), kPerLine));
+            if (take.size() == kPerLine && rest.size() > kPerLine) {
+                if (const std::size_t space = take.find_last_of(' ');
+                    space != std::string_view::npos) {
+                    take = take.substr(0, space);
+                }
+            }
+            builder.SetTextLive(g_notice_detail[line], take);
+            rest.remove_prefix(take.size());
+            while (!rest.empty() && rest.front() == ' ') {
+                rest.remove_prefix(1);
+            }
+        }
     }
-    builder.SetVisibilityOf(g_restart_panel,
-                            status.restart_required ? kHitTestInvisible : kCollapsedValue);
-    builder.SetVisibilityOf(g_restart_rule,
-                            status.restart_required ? kHitTestInvisible : kCollapsedValue);
-    for (const std::uintptr_t line : g_restart_line) {
-        builder.SetVisibilityOf(line,
-                                status.restart_required ? kHitTestInvisible : kCollapsedValue);
+
+    const std::uint8_t notice_visibility = notice ? kHitTestInvisible : kCollapsedValue;
+    for (const std::uintptr_t widget : {g_notice_panel, g_notice_rule, g_notice_title,
+                                        g_notice_detail[0], g_notice_detail[1]}) {
+        builder.SetVisibilityOf(widget, notice_visibility);
     }
 }
 

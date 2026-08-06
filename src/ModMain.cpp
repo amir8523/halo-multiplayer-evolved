@@ -1672,6 +1672,8 @@ void RefreshLobbyStatus() {
 
     unreal::LobbyStatus status;
     status.online = steam::IsInitialized() && steam::IsLoggedOn();
+    /// Why the session failed, when it has. Read under the lock, shown outside it.
+    std::string session_error;
 
     {
         std::lock_guard lock(g_state_mutex);
@@ -1725,9 +1727,10 @@ void RefreshLobbyStatus() {
                     status.session = "MATCH OVER";
                     break;
                 case lobby::LobbyPhase::Faulted:
-                    status.session = snapshot.last_error.empty()
-                                         ? "FAULTED"
-                                         : std::format("ERROR: {}", snapshot.last_error);
+                    // The word only. The reason is a sentence and goes to the notice
+                    // panel, which has the width to show all of it.
+                    status.session = "ERROR";
+                    session_error  = snapshot.last_error;
                     break;
             }
 
@@ -1771,6 +1774,22 @@ void RefreshLobbyStatus() {
     status.update_available = behind;
     status.restart_required = staged;
     status.staged_version   = staged ? latest : std::string{};
+
+    // The notice panel carries whichever of these matters more.
+    //
+    // A session error wins over a staged update: one explains why the thing the player is
+    // trying to do right now did not work, and the other can wait until they next look at
+    // the screen.
+    if (!session_error.empty()) {
+        status.notice_title  = "SESSION ERROR";
+        status.notice_detail = session_error;
+    } else if (staged) {
+        status.notice_title  = latest.empty()
+                                   ? std::string{"UPDATE INSTALLED"}
+                                   : std::format("UPDATE {} INSTALLED", latest);
+        status.notice_detail = "Quit and relaunch the game to start using it.";
+    }
+
     if (staged) {
         status.version = std::format("v{}  UPDATE {} INSTALLED", kModVersion, latest);
     } else if (progress >= 0) {
