@@ -178,9 +178,28 @@ DWORD WINAPI LoadModThread(LPVOID) {
     g_mod_module = ::LoadLibraryExW(mod_path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (g_mod_module == nullptr) {
         const DWORD error = ::GetLastError();
-        LogLine(L"LoadLibrary('%s') failed with %lu. A missing Visual C++ runtime is the usual "
-                L"cause; install the latest x64 redistributable.",
-                mod_path, error);
+
+        // Named causes for the two that actually happen, rather than one guess for all
+        // of them. The single message this replaced blamed a missing Visual C++ runtime
+        // whatever the code was, which sent at least one person looking for a
+        // redistributable problem when the real answer was that something else had the
+        // file open and closing it would have fixed it in a second.
+        const wchar_t* cause = L"";
+        switch (error) {
+            case 32: // ERROR_SHARING_VIOLATION
+                cause = L" Something else has the file open, usually another copy of the "
+                        L"game or a build still writing it. Close it and start again.";
+                break;
+            case 126: // ERROR_MOD_NOT_FOUND
+            case 193: // ERROR_BAD_EXE_FORMAT
+                cause = L" The file is missing a dependency or is not a 64 bit DLL. "
+                        L"Installing the latest x64 Visual C++ redistributable is the "
+                        L"usual fix.";
+                break;
+            default:
+                break;
+        }
+        LogLine(L"LoadLibrary('%s') failed with %lu.%s", mod_path, error, cause);
         return 1;
     }
 
