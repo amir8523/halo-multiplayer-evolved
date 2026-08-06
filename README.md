@@ -146,6 +146,7 @@ Everything technical lives in the docs rather than here.
 
 | Document | What is in it |
 | --- | --- |
+| [AGENTS.md](AGENTS.md) | Commands, conventions, and the engine facts that cost time to learn. Read first |
 | [Architecture](docs/00-ARCHITECTURE.md) | Why the game's simulation is a Blam engine, and what that means |
 | [Engine binding](docs/04-ENGINE-BINDING.md) | Measured findings about the shipped binary |
 | [Map format](docs/02-MAP-FORMAT.md) | The map model and its canonical binary form |
