@@ -389,7 +389,17 @@ public:
     /// resolved against TextBlock specifically, because SetText exists on several unrelated
     /// classes and calling the wrong one is a crash rather than a wrong result.
     void SetTextLive(std::uintptr_t block, std::string_view value) const {
-        if (block == 0 || context_.set_text == 0 || context_.convert_function == 0 ||
+        SetTextLiveOn(block, context_.set_text, value);
+    }
+
+    /// The same, against a setter the caller names.
+    ///
+    /// A text block and an editable box both take an FText and both cache it, but they are
+    /// unrelated classes with their own SetText, and calling one on the other is a crash
+    /// rather than a wrong result.
+    void SetTextLiveOn(std::uintptr_t block, std::uintptr_t setter,
+                       std::string_view value) const {
+        if (block == 0 || setter == 0 || context_.convert_function == 0 ||
             context_.text_library == 0) {
             return;
         }
@@ -421,7 +431,7 @@ public:
         };
         TextParameters parameters{};
         std::memcpy(parameters.text, convert.result, sizeof(parameters.text));
-        (void)CallFunction(block, context_.set_text, &parameters);
+        (void)CallFunction(block, setter, &parameters);
     }
 
     /// Changes the colour of a block that is already on screen, for the same reason.
@@ -1532,6 +1542,9 @@ Result ResolveLobbyStatics(const ObjectArray& objects, LobbyUIContext& out_conte
     context.add_to_viewport    = find("AddToViewport", "UserWidget");
     context.get_viewport_size  = find("GetViewportSize", "WidgetLayoutLibrary");
     context.get_editable_text  = find("GetText", "EditableText");
+    // Needed to put text back into the field after the screen exists. Writing the property
+    // only works while the widget is being created, the same as every other live change.
+    context.set_editable_text  = find("SetText", "EditableText");
     context.text_to_string     = find("Conv_TextToString", "KismetTextLibrary");
 
     // The font the game's own text is set in, chosen by which one most of it uses.
@@ -2061,7 +2074,32 @@ std::string ReadServerName(const LobbyUIContext& context) {
         }
         name.push_back(static_cast<char>(character));
     }
+
+    // Cut here, and put the cut version back in the box.
+    //
+    // Applying the limit only where the name is used would let somebody type a hundred
+    // characters, see all of them, and then find the game advertised under something
+    // shorter that they never chose. Correcting the field is the only version of this that
+    // is honest about what the name actually is.
+    if (name.size() > kMaxServerNameLength) {
+        name.resize(kMaxServerNameLength);
+        WriteServerName(context, name);
+    }
     return name;
+}
+
+void WriteServerName(const LobbyUIContext& context, std::string_view name) {
+    if (g_server_name_field == 0) {
+        return;
+    }
+    const Builder builder(context);
+    if (context.set_editable_text == 0) {
+        // No setter resolved: the property write still works before the field has been
+        // built, which covers restoring a saved name at build time.
+        builder.SetFieldText(g_server_name_field, name);
+        return;
+    }
+    builder.SetTextLiveOn(g_server_name_field, context.set_editable_text, name);
 }
 
 bool LobbyIsBuilt() { return g_open_host_widget != 0 && g_open_lobby_root != 0; }

@@ -241,6 +241,7 @@ struct LobbyUIContext {
     /// cannot be picked apart by hand.
     std::uintptr_t editable_class{0};
     std::uintptr_t get_editable_text{0};
+    std::uintptr_t set_editable_text{0};
     std::uintptr_t text_to_string{0};
     /// Where the field keeps its font and text colour, found by reflection rather than
     /// guessed. Zero when it could not be located, in which case styling is skipped rather
@@ -410,11 +411,27 @@ void SetLobbyFriends(const LobbyUIContext& context, const std::vector<LobbyFrien
 void SetLobbyRoster(const LobbyUIContext& context, const std::vector<std::string>& blue,
                     const std::vector<std::string>& red, const std::string& host_name);
 
+/// The longest a server name may be.
+///
+/// A name is advertised in the lobby's Steam metadata and drawn in one table column, so an
+/// unbounded one is both a wide row nothing else lines up with and a larger payload on
+/// every lobby search anyone runs.
+inline constexpr std::size_t kMaxServerNameLength = 64;
+
 /// Reads what the player typed as the server name.
 ///
 /// Empty when the field is untouched, so a caller can fall back to a default rather than
-/// advertising a blank name. Must run on the game thread.
+/// advertising a blank name.
+///
+/// Anything past kMaxServerNameLength is cut off and written back to the field, so the
+/// limit is visible in the box rather than being applied silently somewhere the player
+/// cannot see. Must run on the game thread.
 [[nodiscard]] std::string ReadServerName(const LobbyUIContext& context);
+
+/// Puts a name into the server name field, for restoring a saved one.
+///
+/// Must run on the game thread.
+void WriteServerName(const LobbyUIContext& context, std::string_view name);
 
 /// True once the lobby has been built and can simply be shown.
 [[nodiscard]] bool LobbyIsBuilt();
