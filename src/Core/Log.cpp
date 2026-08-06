@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <mutex>
 #include <share.h> // _SH_DENYWR
 
@@ -94,6 +95,24 @@ void Initialize(const std::filesystem::path& file, Level min_level) {
     // while the game holds it open. fopen denies all sharing on Windows, which made
     // the log unreadable until the game exited: exactly when a user trying to
     // diagnose a hang or a failed join most needs to see it.
+    // The previous run is kept before this one overwrites it.
+    //
+    // Opening "wb" truncates, so every launch destroyed the log of the launch before it.
+    // That is exactly backwards for the problems worth reporting: a player who has just
+    // seen a join fail restarts the game to try again, and the restart is what deletes the
+    // record of the failure. One generation back is enough, because the run being asked
+    // about is almost always the one immediately before the restart.
+    std::error_code rotate_error;
+    std::filesystem::path previous = file;
+    previous.replace_extension();
+    previous += ".previous.log";
+    if (std::filesystem::exists(file, rotate_error)) {
+        std::filesystem::remove(previous, rotate_error);
+        std::filesystem::rename(file, previous, rotate_error);
+        // A failure here is not worth refusing to log over: the worst case is the old
+        // behaviour, which is that the previous run is lost.
+    }
+
     g_file = _wfsopen(file.c_str(), L"wb", _SH_DENYWR);
 
     if (g_file != nullptr) {
