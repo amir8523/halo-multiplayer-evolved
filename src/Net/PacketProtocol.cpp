@@ -317,6 +317,7 @@ void HandshakeAcceptBody::Write(ByteWriter& writer) const {
     writer.WriteU8(assigned_slot);
     writer.WriteU8(assigned_team);
     writer.WriteU32(host_tick_rate);
+    writer.WriteU8(host_phase);
 }
 
 Expected<HandshakeAcceptBody> HandshakeAcceptBody::Read(ByteReader& reader) {
@@ -324,6 +325,12 @@ Expected<HandshakeAcceptBody> HandshakeAcceptBody::Read(ByteReader& reader) {
     if (!reader.ReadU8(body.assigned_slot) || !reader.ReadU8(body.assigned_team) ||
         !reader.ReadU32(body.host_tick_rate)) {
         return Error{ErrorCode::ProtocolViolation, "malformed HandshakeAccept"};
+    }
+    // Optional on the wire. The protocol version guards against a build that predates
+    // this field, but reading it as optional means a truncated body is treated as an
+    // older host in a lobby rather than as a malformed packet.
+    if (!reader.ReadU8(body.host_phase)) {
+        body.host_phase = static_cast<std::uint8_t>(ProtocolPhase::InLobby);
     }
     if (body.host_tick_rate == 0 || body.host_tick_rate > 240) {
         return Error{ErrorCode::ProtocolViolation,

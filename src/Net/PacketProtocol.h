@@ -41,7 +41,14 @@ namespace mpe::net {
 inline constexpr std::uint16_t kPacketMagic = 0xFE07u;
 
 /// Incremented on any incompatible change to an existing message layout.
-inline constexpr std::uint16_t kProtocolVersion = 1;
+///
+/// 2: HandshakeAccept carries the host's phase, and a client no longer treats a roster
+///    arriving during the handshake as a violation. The bump is not for the added field,
+///    which reads as optional, but for the behaviour: a version 1 client disconnects the
+///    host over that roster and then reports a timeout, so it cannot join a version 2
+///    session at all. Refusing to list one another is a far better failure than a join
+///    that always times out for a reason neither side can see.
+inline constexpr std::uint16_t kProtocolVersion = 2;
 
 /// Largest payload we will accept on any channel. Map transfer is chunked well
 /// below this; anything larger is rejected before allocation.
@@ -182,6 +189,13 @@ struct HandshakeAcceptBody {
     std::uint8_t  assigned_slot{0};
     std::uint8_t  assigned_team{0};
     std::uint32_t host_tick_rate{0};
+    /// What the host is doing, as a ProtocolPhase.
+    ///
+    /// A client used to assume it had joined a lobby, because that was the only thing a
+    /// host would accept it into. A host will now take a late arrival during a match, and
+    /// a client that assumed otherwise would sit on a lobby screen waiting for a launch
+    /// that had already happened without it.
+    std::uint8_t  host_phase{0};
 
     void Write(ByteWriter& writer) const;
     [[nodiscard]] static Expected<HandshakeAcceptBody> Read(ByteReader& reader);
