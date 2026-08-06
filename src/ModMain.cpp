@@ -2325,9 +2325,49 @@ void MaintainMainMenuButton() {
         //
         // A cheaper filter has to key on something already known to be correct rather than
         // on a search that can silently come up empty.
+        // The entry's own pieces come out of this pass too.
+        //
+        // They do not change for the life of the process, and resolving them used to be a
+        // second walk of the array immediately after this one, at the moment the player is
+        // looking at a menu with no entry on it. This pass already visits every object with
+        // its names resolved, so collecting them here costs a few comparisons and removes
+        // the second walk entirely.
+        unreal::MenuButtonPlan pieces;
+
         std::vector<std::uintptr_t> beside;
         g_state->objects->ForEach([&](const unreal::ObjectInfo& object) {
-            if (object.name.rfind("Default__", 0) == 0) {
+            const bool is_default = object.name.rfind("Default__", 0) == 0;
+
+            if (pieces.button_class == 0 &&
+                object.name == "WBP_MeteoriteStandaloneButtonDefault_C" &&
+                object.class_name.find("Class") != std::string::npos) {
+                pieces.button_class = object.address;
+            } else if (pieces.widget_library == 0 &&
+                       object.name == "Default__WidgetBlueprintLibrary") {
+                pieces.widget_library = object.address;
+            } else if (pieces.text_library == 0 &&
+                       object.name == "Default__KismetTextLibrary") {
+                pieces.text_library = object.address;
+            } else if (object.class_name == "Function") {
+                if (pieces.create_function == 0 && object.name == "Create") {
+                    pieces.create_function = object.address;
+                } else if (pieces.add_child_function == 0 && object.name == "AddChild") {
+                    pieces.add_child_function = object.address;
+                } else if (pieces.remove_child_function == 0 &&
+                           object.name == "RemoveChild") {
+                    pieces.remove_child_function = object.address;
+                } else if (pieces.convert_function == 0 &&
+                           object.name == "Conv_StringToText") {
+                    pieces.convert_function = object.address;
+                }
+            } else if (!is_default && pieces.controller == 0 &&
+                       object.class_name.find("PlayerController") != std::string::npos &&
+                       object.class_name.find("Component") == std::string::npos &&
+                       object.name.find("_GEN_VARIABLE") == std::string::npos) {
+                pieces.controller = object.address;
+            }
+
+            if (is_default) {
                 return true;
             }
             if (object.class_name == "WBP_MainMenu_C") {
@@ -2355,6 +2395,7 @@ void MaintainMainMenuButton() {
             return true;
         });
         g_lobby_ui.also_fold = beside;
+        unreal::SeedMenuButtonPlan(pieces);
     }
 
     // When the menu first appeared, so the delay a player actually sees can be a measured

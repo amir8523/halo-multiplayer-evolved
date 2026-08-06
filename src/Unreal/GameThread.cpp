@@ -1042,6 +1042,28 @@ bool WarmMenuButtonPlan(const ObjectArray& objects) {
     return WarmMenuButtonPlanLocked(objects);
 }
 
+void SeedMenuButtonPlan(const MenuButtonPlan& pieces) {
+    std::lock_guard lock(g_plan_mutex);
+    if (g_static_plan_resolved) {
+        return;
+    }
+    // The same completeness test the resolver applies to its own scan. An incomplete seed
+    // is discarded rather than cached, so the worst case is the scan that would have
+    // happened anyway.
+    if (pieces.button_class == 0 || pieces.create_function == 0 ||
+        pieces.widget_library == 0 || pieces.add_child_function == 0 ||
+        pieces.controller == 0) {
+        return;
+    }
+
+    g_static_plan                = pieces;
+    g_static_plan.menu           = 0;
+    g_static_plan.container      = 0;
+    g_static_plan.existing_count = 0;
+    g_static_plan_resolved       = true;
+    MPE_LOG_INFO("menu entry pieces taken from the caller's pass; no second scan needed");
+}
+
 Result ResolveMenuButtonPlan(const ObjectArray& objects, std::uintptr_t known_menu,
                              MenuButtonPlan& out_plan) {
     constexpr std::uintptr_t kContainerOffset = 0x560;

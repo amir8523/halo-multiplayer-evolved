@@ -262,6 +262,18 @@ struct MenuRow {
 /// exist, and does nothing once it has succeeded.
 [[nodiscard]] bool WarmMenuButtonPlan(const ObjectArray& objects);
 
+/// Supplies the menu independent pieces from a pass the caller has already made.
+///
+/// The caller walks the object array to find the menu, and the same walk sees the button
+/// class, the libraries, the functions and the controller. Handing them over means
+/// ResolveMenuButtonPlan makes no pass of its own, so adding the entry costs one walk
+/// rather than two, back to back, at the moment the player is looking at a menu that has
+/// no entry on it.
+///
+/// Ignored unless every required piece is present, so a partial pass cannot poison the
+/// cache: the resolver simply falls back to scanning for itself.
+void SeedMenuButtonPlan(const MenuButtonPlan& pieces);
+
 /// Applies a resolved plan. Must run on the game thread.
 [[nodiscard]] Result ApplyMenuButtonPlan(const MenuButtonPlan& plan, std::string_view label,
                                          std::uintptr_t& out_button);

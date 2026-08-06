@@ -80,6 +80,10 @@ Each one broke something and was fixed once. Do not re-derive them.
   treat an out-of-phase packet as a protocol violation worth disconnecting over.
 - **A design point is two screen pixels at 4K.** The lobby is authored at 1920x1080 and
   scaled.
+- **`NamePool::FindIndexOf` searches a bounded number of blocks and this pool has 141.**
+  It returns nothing for a name that lives past the limit, with no error. Filtering the
+  object array on an index from it found zero objects forever and removed the MULTIPLAYER
+  entry entirely. Filter on something already known to be correct.
 
 ## Performance: what not to do
 
