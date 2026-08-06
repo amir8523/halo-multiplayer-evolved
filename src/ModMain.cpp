@@ -57,6 +57,8 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <format>
 #include <memory>
 #include <mutex>
@@ -203,6 +205,8 @@ void CloseInviteList();
 void PageFriendList(int direction);
 void ShowInviteList(bool visible);
 void RefreshLobbyRoster();
+[[nodiscard]] std::string LoadServerName();
+void                      SaveServerName(const std::string& name);
 
 /// Which multiplayer screen is showing.
 ///
@@ -735,6 +739,21 @@ void TickLoop() {
         RefreshLobbyStatus();
         RefreshLobbyRoster();
 
+        // The name is picked up on a short interval rather than only when a match starts.
+        //
+        // Two reasons, both about it being visible. The length limit is applied where the
+        // field is read, so reading rarely would let an over long name sit on screen
+        // looking accepted; and the name is what the session advertises, so a player who
+        // types one and then walks away should still be findable under it.
+        if (unreal::LobbyIsBuilt() && g_screen != MultiplayerScreen::ServerBrowser) {
+            static auto s_last_name = std::chrono::steady_clock::time_point{};
+            const auto  now         = std::chrono::steady_clock::now();
+            if (now - s_last_name >= std::chrono::seconds(2)) {
+                s_last_name = now;
+                CaptureServerName();
+            }
+        }
+
         // The browser refreshes itself while it is open.
         //
         // A lobby search is asynchronous: asking Steam and reading the answer in the same
@@ -1180,6 +1199,12 @@ void OnMultiplayerClicked() {
         g_lobby.AddPlayer(SteamPlayerName(), true);
     }
 
+    // Whatever this player called their game last time, so it is typed once rather than
+    // once per launch.
+    if (g_lobby.server_name.empty()) {
+        g_lobby.server_name = LoadServerName();
+    }
+
     // The screen is ordinary UMG: tabs, two team columns of player cards, a settings panel
     // and a server table, created with SpawnObject and placed on the menu's own canvas. An
     // earlier version built a list of menu rows instead, which was never going to reach
@@ -1253,10 +1278,54 @@ void SwitchLobbyTab(bool browsing) {
     (void)unreal::RunOnGameThread([&]() { unreal::SetLobbyTab(ui, browsing); }, 5000);
 }
 
+/// Where the server name is kept between sessions.
+[[nodiscard]] std::filesystem::path ServerNamePath() {
+    return DataDirectory() / "server-name.txt";
+}
+
+/// Remembers the server name so it does not have to be typed again next time.
+void SaveServerName(const std::string& name) {
+    static std::string s_saved;
+    if (name == s_saved) {
+        return;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(DataDirectory(), error);
+    std::ofstream file(ServerNamePath(), std::ios::binary | std::ios::trunc);
+    if (!file) {
+        MPE_LOG_WARN("could not write {}", ServerNamePath().string());
+        return;
+    }
+    file.write(name.data(), static_cast<std::streamsize>(name.size()));
+    s_saved = name;
+    MPE_LOG_INFO("server name saved as '{}'", name);
+}
+
+/// Reads back a previously saved server name, or nothing on the first run.
+[[nodiscard]] std::string LoadServerName() {
+    std::ifstream file(ServerNamePath(), std::ios::binary);
+    if (!file) {
+        return {};
+    }
+    std::string name((std::istreambuf_iterator<char>(file)),
+                     std::istreambuf_iterator<char>());
+    // Trailing whitespace comes from anyone who edits the file by hand, and a name with a
+    // newline on the end is advertised with a newline on the end.
+    while (!name.empty() && (name.back() == '\n' || name.back() == '\r' ||
+                             name.back() == ' ' || name.back() == '\t')) {
+        name.pop_back();
+    }
+    if (name.size() > unreal::kMaxServerNameLength) {
+        name.resize(unreal::kMaxServerNameLength);
+    }
+    return name;
+}
+
 /// Takes whatever the player typed into the server name field.
 ///
 /// Read on demand rather than tracked as it is typed: the field owns its own text, so
-/// asking it at the moment the name matters is both simpler and always current.
+/// asking it at the moment the name matters is both simpler and always current. Reading is
+/// also what enforces the length limit, because that is where the field is corrected.
 void CaptureServerName() {
     if (!g_lobby_ui_ready) {
         return;
@@ -1267,10 +1336,12 @@ void CaptureServerName() {
     }
     std::string typed;
     (void)unreal::RunOnGameThread([&]() { typed = unreal::ReadServerName(ui); }, 5000);
-    if (!typed.empty()) {
-        g_lobby.server_name = typed;
-        MPE_LOG_INFO("server name is '{}'", g_lobby.server_name);
+    if (typed.empty() || typed == g_lobby.server_name) {
+        return;
     }
+    g_lobby.server_name = typed;
+    MPE_LOG_INFO("server name is '{}'", g_lobby.server_name);
+    SaveServerName(g_lobby.server_name);
 }
 
 /// Makes sure a real, joinable session exists behind the lobby screen.
