@@ -65,6 +65,13 @@ namespace keys {
 
 /// Wire protocol version. A client compares this before joining and refuses
 /// early with a clear message rather than failing mid handshake.
+/// Marks a lobby as one this mod opened, and which protocol it speaks.
+///
+/// Steam filters the server browser's search on this key, so it does two jobs at once:
+/// the game's own co-op fireteam lobbies are excluded before they can fill the result
+/// set, and a session is only listed for players whose build can actually talk to it.
+inline constexpr const char* kBrowseMarker = "mpe.v";
+
 inline constexpr const char* kProtocolVersion = "fe.protocol";
 
 /// Game build string, from the executable's version resource. Must match

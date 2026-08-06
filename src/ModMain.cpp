@@ -207,6 +207,7 @@ void ShowInviteList(bool visible);
 void RefreshLobbyRoster();
 [[nodiscard]] std::string LoadServerName();
 void                      SaveServerName(const std::string& name);
+[[nodiscard]] lobby::LobbyId HostedLobbyLocked();
 
 /// Which multiplayer screen is showing.
 ///
@@ -274,7 +275,7 @@ int                         g_friend_page = 0;
 
 /// This build's version, compared against the newest GitHub release to decide whether the
 /// status panel should tell the player to update.
-constexpr const char* kModVersion = "0.1.4";
+constexpr const char* kModVersion = "0.1.5";
 
 /// The newest version seen on GitHub, empty until a check has succeeded.
 ///
@@ -1415,13 +1416,10 @@ void OpenSessionInvite() {
             g_invite_pending = false;
             return;
         }
-        if (g_state->manager->Phase() != lobby::LobbyPhase::Hosting) {
-            return; // Not yet; the poll loop will try again.
-        }
-        lobby = g_state->manager->Snapshot().lobby_id;
+        lobby = HostedLobbyLocked();
     }
     if (lobby == 0) {
-        return;
+        return; // Not yet; the poll loop will try again.
     }
 
     g_invite_pending = false;
@@ -1454,6 +1452,33 @@ void OpenSessionInvite() {
                 friends.size(), in_game);
 
     ShowInviteList(true);
+}
+
+/// The lobby this machine is hosting, or zero when it is not hosting one.
+///
+/// Deliberately not "the phase is Hosting". Hosting means the lobby is open and waiting,
+/// which is only the first part of a session's life: pressing start moves it to Countdown,
+/// Loading and then InMatch, and every one of those is still a session this machine owns
+/// and can invite people to. Testing for Hosting alone meant the invite slots went dead the
+/// moment a match began, so a friend who arrived late could not be invited at all.
+///
+/// The caller must hold g_state_mutex.
+[[nodiscard]] lobby::LobbyId HostedLobbyLocked() {
+    if (!g_state || !g_state->manager || !g_state->manager->IsHost()) {
+        return 0;
+    }
+    switch (g_state->manager->Phase()) {
+        case lobby::LobbyPhase::Hosting:
+        case lobby::LobbyPhase::Countdown:
+        case lobby::LobbyPhase::Loading:
+        case lobby::LobbyPhase::InMatch:
+        case lobby::LobbyPhase::PostMatch:
+            return g_state->manager->Snapshot().lobby_id;
+        default:
+            // Idle, Creating and Faulted have no lobby worth pointing anybody at, and the
+            // client side phases are not this machine's session at all.
+            return 0;
+    }
 }
 
 /// Puts the invite list on screen, or takes it off.
@@ -1504,13 +1529,10 @@ void InviteFriendAt(int row) {
     lobby::LobbyId lobby = 0;
     {
         std::lock_guard lock(g_state_mutex);
-        if (g_state && g_state->manager &&
-            g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
-            lobby = g_state->manager->Snapshot().lobby_id;
-        }
+        lobby = HostedLobbyLocked();
     }
     if (lobby == 0) {
-        MPE_LOG_WARN("cannot invite {}: this session is not hosting yet",
+        MPE_LOG_WARN("cannot invite {}: there is no session on this machine to invite to",
                     g_friend_list[index].name);
         return;
     }
@@ -1552,10 +1574,7 @@ void PublishSessionDetails() {
         if (!g_state || !g_state->manager) {
             return;
         }
-        if (g_state->manager->Phase() != lobby::LobbyPhase::Hosting) {
-            return;
-        }
-        lobby = g_state->manager->Snapshot().lobby_id;
+        lobby = HostedLobbyLocked();
     }
     if (lobby == 0) {
         return;
@@ -1620,10 +1639,20 @@ void RefreshLobbyRoster() {
         }
     }
 
-    // Not yet hosting means no roster to show, and blanking the cards on every tick before
-    // the session exists would fight with the screen being built.
+    // An empty roster is a roster, and it has to be drawn.
+    //
+    // Leaving the cards alone when the session has no players sounds harmless and is not:
+    // accepting an invitation leaves the session being hosted before joining the new one,
+    // and skipping the empty moment in between left the old roster on screen. A player who
+    // had just left his own session was still shown in it, marked Owner, while the mod was
+    // connecting him to somebody else's.
+    //
+    // Before any session exists there is still one person to show, which is the player
+    // themselves, so that is what an empty roster falls back to rather than five empty
+    // slots on a screen they have just opened.
     if (blue.empty() && red.empty()) {
-        return;
+        host_name = SteamPlayerName();
+        blue.push_back(host_name);
     }
 
     std::string signature = host_name;
@@ -1662,11 +1691,23 @@ void RefreshLobbyStatus() {
 
     unreal::LobbyStatus status;
     status.online = steam::IsInitialized() && steam::IsLoggedOn();
+    /// Why the session failed, when it has. Read under the lock, shown outside it.
+    std::string session_error;
 
     {
         std::lock_guard lock(g_state_mutex);
         if (g_state && g_state->manager) {
             const lobby::LobbySnapshot& snapshot = g_state->manager->Snapshot();
+
+            // Every phase named, with nothing falling through to a word that covers
+            // several of them.
+            //
+            // There are twelve phases and this used to name four, so joining somebody
+            // else's session read as BUSY from the moment the Steam lobby was entered
+            // until the match started. A player watching that cannot tell a handshake in
+            // progress from one that has stopped, and neither could anybody reading their
+            // report of it: the first two player test came back as "it says busy", which
+            // is the screen's fault rather than the session's.
             switch (g_state->manager->Phase()) {
                 case lobby::LobbyPhase::Idle:
                     status.session = "OFFLINE";
@@ -1680,13 +1721,55 @@ void RefreshLobbyStatus() {
                     status.invitable = status.online;
                     break;
                 case lobby::LobbyPhase::Joining:
-                    status.session = "JOINING";
+                    status.session = "JOINING LOBBY";
                     break;
-                default:
-                    status.session = snapshot.last_error.empty()
-                                         ? "BUSY"
-                                         : std::format("ERROR: {}", snapshot.last_error);
+                case lobby::LobbyPhase::Connecting:
+                    status.session = "CONNECTING TO HOST";
                     break;
+                case lobby::LobbyPhase::Handshaking:
+                    status.session = "HANDSHAKING";
+                    break;
+                case lobby::LobbyPhase::InLobby:
+                    status.session = std::format("JOINED  {}/{}", snapshot.players.size(),
+                                                 LobbyState::kMaxPlayers);
+                    break;
+                case lobby::LobbyPhase::Countdown:
+                    status.session = "STARTING MATCH";
+                    break;
+                case lobby::LobbyPhase::Loading:
+                    status.session = "LOADING";
+                    break;
+                case lobby::LobbyPhase::InMatch:
+                    status.session = "IN MATCH";
+                    break;
+                case lobby::LobbyPhase::PostMatch:
+                    status.session = "MATCH OVER";
+                    break;
+                case lobby::LobbyPhase::Faulted:
+                    // The word only. The reason is a sentence and goes to the notice
+                    // panel, which has the width to show all of it.
+                    status.session = "ERROR";
+                    session_error  = snapshot.last_error;
+                    break;
+            }
+
+            // A phase that is going nowhere says so.
+            //
+            // Connecting and handshaking are supposed to be brief. Left as they are, one
+            // that never completes looks exactly like one that is about to, and the player
+            // waits indefinitely on a screen that reads as normal.
+            static lobby::LobbyPhase                     s_phase = lobby::LobbyPhase::Idle;
+            static std::chrono::steady_clock::time_point s_since{};
+            const lobby::LobbyPhase current = g_state->manager->Phase();
+            if (current != s_phase) {
+                s_phase = current;
+                s_since = now;
+            }
+            const bool transient = current == lobby::LobbyPhase::Joining ||
+                                   current == lobby::LobbyPhase::Connecting ||
+                                   current == lobby::LobbyPhase::Handshaking;
+            if (transient && now - s_since > std::chrono::seconds(20)) {
+                status.session += "  STALLED";
             }
         } else {
             status.session = "UNAVAILABLE";
@@ -1710,6 +1793,22 @@ void RefreshLobbyStatus() {
     status.update_available = behind;
     status.restart_required = staged;
     status.staged_version   = staged ? latest : std::string{};
+
+    // The notice panel carries whichever of these matters more.
+    //
+    // A session error wins over a staged update: one explains why the thing the player is
+    // trying to do right now did not work, and the other can wait until they next look at
+    // the screen.
+    if (!session_error.empty()) {
+        status.notice_title  = "SESSION ERROR";
+        status.notice_detail = session_error;
+    } else if (staged) {
+        status.notice_title  = latest.empty()
+                                   ? std::string{"UPDATE INSTALLED"}
+                                   : std::format("UPDATE {} INSTALLED", latest);
+        status.notice_detail = "Quit and relaunch the game to start using it.";
+    }
+
     if (staged) {
         status.version = std::format("v{}  UPDATE {} INSTALLED", kModVersion, latest);
     } else if (progress >= 0) {
@@ -1948,28 +2047,35 @@ void OnJoinMatch() {
                                 : 0;
     const steam::LobbyListing& target = visible[row];
 
-    // A host pressing JOIN would leave the session everybody else is waiting in and then
-    // try to enter it again as a client, which does not work and loses the lobby.
+    MPE_LOG_INFO("joining '{}' ({} on {}), lobby {}, {}/{} players, {} ms", target.name,
+                target.mode, target.map, target.id, target.members, target.capacity,
+                target.ping_milliseconds);
+
+    // Leaving and joining under one lock, not three.
+    //
+    // Taking it separately for the check, the leave and the join leaves gaps another
+    // thread can change the session in, and the worst of those lands between leaving this
+    // machine's own session and entering somebody else's, which is the moment there is no
+    // session at all.
+    Result joined = Result::Success();
     {
         std::lock_guard lock(g_state_mutex);
         if (!g_state || !g_state->manager) {
             MPE_LOG_WARN("cannot join {}: networking is unavailable", target.name);
             return;
         }
-        if (g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
-            MPE_LOG_WARN("not joining {}: this game is hosting session {}. Leave first.",
-                        target.name, g_state->manager->Snapshot().lobby_id);
-            return;
+
+        // The session this player is sitting in is left first, automatically.
+        //
+        // Opening the multiplayer screen hosts a session, so by the time anybody reaches
+        // the browser they are always hosting one. Refusing to join while hosting
+        // therefore refused every join there is, and told the player to leave a session
+        // they never knowingly started. Leaving it here is what accepting an invitation
+        // already does.
+        if (g_state->manager->Phase() != lobby::LobbyPhase::Idle) {
+            MPE_LOG_INFO("leaving this machine's own session first");
+            g_state->manager->LeaveSession();
         }
-    }
-
-    MPE_LOG_INFO("joining '{}' ({} on {}), lobby {}, {}/{} players, {} ms", target.name,
-                target.mode, target.map, target.id, target.members, target.capacity,
-                target.ping_milliseconds);
-
-    Result joined = Result::Success();
-    {
-        std::lock_guard lock(g_state_mutex);
         joined = g_state->manager->JoinSession(target.id);
     }
     if (!joined.ok()) {

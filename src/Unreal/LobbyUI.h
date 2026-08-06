@@ -178,6 +178,9 @@ struct LobbyUIContext {
     /// Used to fold the main menu away while the lobby is up, and to bring it back. This
     /// is what makes the lobby a screen rather than a panel sitting on top of the menu.
     std::uintptr_t set_visibility{0};
+    /// Reads a widget's visibility so folding the menu away can put it back exactly as it
+    /// was. Restoring it to Visible instead is what left the main menu drawn and dead.
+    std::uintptr_t get_visibility{0};
     /// Walking the menu root's children, so the widgets to fold away are the ones actually
     /// parented there rather than a list of offsets guessed from a header.
     std::uintptr_t get_children_count{0};
@@ -374,6 +377,16 @@ struct LobbyStatus {
     bool        restart_required{false};
     /// The version that is staged and will be in use after a restart.
     std::string staged_version;
+
+    /// A message that does not fit on the status line, shown top left instead.
+    ///
+    /// The status panel gives each line about three hundred points, which is enough for
+    /// a phase and a version and nothing else. A session error is a whole sentence, and
+    /// putting one there cut it off mid word: "ERROR: the host did" told a player less
+    /// than nothing. Anything worth reading in full goes here, where it has the width to
+    /// be read and the height to wrap.
+    std::string notice_title;
+    std::string notice_detail;
 };
 
 /// Rewrites the status panel in place. Must run on the game thread.

@@ -7,7 +7,7 @@
 
 **The multiplayer Halo: Campaign Evolved should have shipped with.**
 
-[![Version](https://img.shields.io/badge/version-0.1.4-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.1.5-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Download](https://img.shields.io/badge/download-latest%20release-2ea44f?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -90,6 +90,7 @@ imaginative than that.
 | --- | --- | --- |
 | 1 | Two players in one lobby | In progress |
 | 2 | A match both players are in | Next |
+| 2a | Joining a game already in progress | Built |
 | 3 | Slayer and Capture the Flag scoring exactly as they were | Planned |
 | 4 | The original maps: Blood Gulch, Sidewinder, Hang 'Em High, the rest | Planned |
 | 5 | Every original mode: King of the Hill, Oddball, Race, Juggernaut | Planned |
@@ -114,19 +115,18 @@ What works today, honestly. Anything not yet tested says so.
 - A server name, capped at 64 characters and remembered between launches
 - Starting a match
 - Hosting a public session others can find and be invited into
+- Connecting to another player over the Steam relay, with no port forwarding
 - Checking for, downloading and installing updates
 
 **Built, not yet proven with two people**
 
-- The relay transport and listen server
-- The wire protocol and its authorization rules
+- Completing a join. Two machines have reached each other and exchanged the
+  handshake; the reply was being rejected, which is fixed but not yet retested
+- Joining a session that is already in a match
 - Synchronized match launch
-- Joining somebody else's session
 
 **Not done yet**
 
-- A second player actually joining. This is the next thing, and everything after it
-  depends on it
 - Slayer and CTF scoring
 - The original multiplayer maps
 
@@ -156,6 +156,13 @@ No SDK, no package manager.
 
 ```bash
 build.bat install
+```
+
+The wire protocol has its own checks, which run in about a second and cover the
+rules whose failures otherwise only show up with two machines and two people.
+
+```bash
+tools\protocol_check\build.bat
 ```
 
 ---

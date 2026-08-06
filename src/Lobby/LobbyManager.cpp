@@ -1135,13 +1135,19 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
 
     // The authorization gate. A client cannot send host authored messages and no
     // message can arrive in a phase where it makes no sense.
+    //
+    // Dropped rather than disconnected on. Arriving in the wrong phase is not evidence of
+    // an attack: a connection carries several independently ordered lanes, so a message
+    // sent after another can be delivered before it, and a message sent legitimately can
+    // land a moment after the phase it belonged to has ended. Hanging up on the peer for
+    // that turns a message worth ignoring into a session nobody can recover, which is
+    // exactly what happened to the first client that ever reached a host. Ignoring one
+    // packet costs nothing by comparison, and a peer genuinely sending nonsense is still
+    // caught by the decoder above and by the role check below.
     if (!IsMessageAcceptable(packet.type, role, ToProtocolPhase(phase_))) {
-        const auto detail = std::format("{} is not acceptable as {} while {}",
-                                        ToString(packet.type),
-                                        role == PeerRole::Host ? "host" : "client",
-                                        ToString(phase_));
-        MPE_LOG_WARN("peer {}: {}", static_cast<std::uint32_t>(peer), detail);
-        transport_.Disconnect(peer, DisconnectReason::ProtocolViolation, detail);
+        MPE_LOG_WARN("peer {}: dropping {} as {} while {}", static_cast<std::uint32_t>(peer),
+                    ToString(packet.type), role == PeerRole::Host ? "host" : "client",
+                    ToString(phase_));
         return;
     }
 
@@ -1252,10 +1258,23 @@ Result LobbyManager::HandleHandshakeRequest(PeerHandle peer, ByteReader& reader)
     if (players_.size() >= max_players_) {
         return reject(DisconnectReason::Kicked, "the lobby is full");
     }
-    if (phase_ != LobbyPhase::Hosting) {
+    // Late arrivals are admitted, not turned away.
+    //
+    // This used to accept only while Hosting, so pressing start closed the session to
+    // everybody who had not already arrived: a friend a minute late got "the host is no
+    // longer accepting players" and had no way in until the match ended. Halo's own
+    // multiplayer never worked that way and neither should this.
+    //
+    // The phases that genuinely cannot take a new player are the ones where there is
+    // nothing coherent to put them into. Faulted has no session left, and the two client
+    // side phases mean this machine is not the host of anything.
+    if (phase_ == LobbyPhase::Faulted || phase_ == LobbyPhase::Idle ||
+        phase_ == LobbyPhase::Creating) {
         return reject(DisconnectReason::Kicked,
-                      std::format("the host is no longer accepting players ({})",
-                                  ToString(phase_)));
+                      std::format("the host is not running a session ({})", ToString(phase_)));
+    }
+    if (!is_host_) {
+        return reject(DisconnectReason::Kicked, "this machine is not hosting");
     }
     if (FindPlayer(body.platform_id) != nullptr) {
         return reject(DisconnectReason::ProtocolViolation, "already in this lobby");
@@ -1281,6 +1300,8 @@ Result LobbyManager::HandleHandshakeRequest(PeerHandle peer, ByteReader& reader)
     accept.assigned_slot  = player.slot;
     accept.assigned_team  = player.team;
     accept.host_tick_rate = 60;
+    // Told what they are joining, since it is no longer always a lobby.
+    accept.host_phase = static_cast<std::uint8_t>(ToProtocolPhase(phase_));
     accept.Write(builder.Body());
     MPE_TRY(SendTo(peer, MessageType::HandshakeAccept, packet, SendMode::Reliable));
 
@@ -1300,11 +1321,29 @@ Result LobbyManager::HandleHandshakeRequest(PeerHandle peer, ByteReader& reader)
 Result LobbyManager::HandleHandshakeAccept(ByteReader& reader) {
     MPE_ASSIGN_OR_RETURN(const HandshakeAcceptBody body, HandshakeAcceptBody::Read(reader));
 
-    MPE_LOG_INFO("accepted into the match as slot {} on team {}", body.assigned_slot,
-                body.assigned_team);
+    MPE_LOG_INFO("accepted as slot {} on team {}, host is {}", body.assigned_slot,
+                body.assigned_team, static_cast<int>(body.host_phase));
 
     // The roster arrives separately; this only confirms admission.
-    TransitionTo(LobbyPhase::InLobby, "In lobby");
+    //
+    // Where the client lands depends on what the host is doing, because a host will now
+    // admit somebody during a match rather than only before one. Landing in the lobby
+    // regardless would leave a late arrival watching a lobby screen for a launch that had
+    // already happened without them.
+    switch (static_cast<ProtocolPhase>(body.host_phase)) {
+        case ProtocolPhase::Loading:
+            TransitionTo(LobbyPhase::Loading, "Joining a match in progress");
+            break;
+        case ProtocolPhase::InMatch:
+            TransitionTo(LobbyPhase::Loading, "Joining a match in progress");
+            break;
+        case ProtocolPhase::DistributingMap:
+        case ProtocolPhase::InLobby:
+        case ProtocolPhase::Handshaking:
+        default:
+            TransitionTo(LobbyPhase::InLobby, "In lobby");
+            break;
+    }
     return Result::Success();
 }
 
@@ -1956,18 +1995,21 @@ void LobbyManager::TransitionTo(LobbyPhase phase, std::string_view status_text) 
             !published.ok()) {
             MPE_LOG_DEBUG("publishing the phase failed: {}", published.message());
         }
-        // Close the lobby to newcomers once a match is committed, so nobody joins
-        // into a load they cannot participate in. Otherwise restore what the host
-        // actually asked for.
+        // The lobby stays as the host asked for it, in every phase.
         //
-        // This used to reopen every lobby as friends-only regardless. A friends-only
-        // Steam lobby is not returned by a lobby search at all, so a session hosted as
-        // public was quietly demoted the moment it finished being created and never
-        // appeared in anybody's server browser.
-        const bool closed = (phase == LobbyPhase::Loading || phase == LobbyPhase::InMatch);
-        const LobbyVisibility wanted =
-            closed ? LobbyVisibility::InviteOnly : hosted_visibility_;
-        if (const Result visibility = backend_.SetVisibility(wanted); !visibility.ok()) {
+        // It used to be reopened as friends-only whenever the phase changed, which meant a
+        // session hosted as public was demoted the moment it finished being created and
+        // never appeared in anybody's browser. Then it was closed to invite-only while
+        // loading or in a match, on the reasoning that nobody should join into a load they
+        // cannot participate in.
+        //
+        // That reasoning belongs at the join, not at the advertisement. Hiding a running
+        // game means a friend who arrives two minutes late cannot find it, cannot be
+        // invited into it, and has no way to tell that it exists at all. Whether a late
+        // arrival can be admitted is the host's decision to make when they ask, and it is
+        // made in HandleHandshakeRequest where the answer can be explained.
+        if (const Result visibility = backend_.SetVisibility(hosted_visibility_);
+            !visibility.ok()) {
             MPE_LOG_DEBUG("adjusting visibility failed: {}", visibility.message());
         }
     }

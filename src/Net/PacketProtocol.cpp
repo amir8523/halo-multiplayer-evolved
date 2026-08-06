@@ -98,9 +98,21 @@ namespace {
 
         case MessageType::RosterUpdate:
         case MessageType::MatchSettingsSync:
-            // Both are legal in every post handshake phase: the roster keeps
-            // updating during a match so the scoreboard stays live.
-            return phase != ProtocolPhase::Handshaking;
+            // Legal from the handshake onwards, including during it.
+            //
+            // These used to be refused while handshaking, on the reasoning that a client
+            // has not been accepted yet so there is nothing for it to have a roster of.
+            // That reasoning assumed the accept would arrive first, and it does not have
+            // to: the accept is sent on the control channel and these two on the lobby
+            // channel, which are separate lanes on the connection with no ordering
+            // guarantee between them. The host sends all three back to back, so the
+            // roster overtaking the accept is ordinary rather than exceptional.
+            //
+            // The cost of getting this wrong was total. The first client that ever
+            // reached a host disconnected it for sending a roster half a millisecond
+            // early, then waited out the handshake timeout and reported that the host had
+            // never replied.
+            return true;
 
         case MessageType::LaunchCountdown:
             return phase == ProtocolPhase::InLobby || phase == ProtocolPhase::DistributingMap;
@@ -305,6 +317,7 @@ void HandshakeAcceptBody::Write(ByteWriter& writer) const {
     writer.WriteU8(assigned_slot);
     writer.WriteU8(assigned_team);
     writer.WriteU32(host_tick_rate);
+    writer.WriteU8(host_phase);
 }
 
 Expected<HandshakeAcceptBody> HandshakeAcceptBody::Read(ByteReader& reader) {
@@ -312,6 +325,12 @@ Expected<HandshakeAcceptBody> HandshakeAcceptBody::Read(ByteReader& reader) {
     if (!reader.ReadU8(body.assigned_slot) || !reader.ReadU8(body.assigned_team) ||
         !reader.ReadU32(body.host_tick_rate)) {
         return Error{ErrorCode::ProtocolViolation, "malformed HandshakeAccept"};
+    }
+    // Optional on the wire. The protocol version guards against a build that predates
+    // this field, but reading it as optional means a truncated body is treated as an
+    // older host in a lobby rather than as a malformed packet.
+    if (!reader.ReadU8(body.host_phase)) {
+        body.host_phase = static_cast<std::uint8_t>(ProtocolPhase::InLobby);
     }
     if (body.host_tick_rate == 0 || body.host_tick_rate > 240) {
         return Error{ErrorCode::ProtocolViolation,

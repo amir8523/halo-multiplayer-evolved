@@ -119,21 +119,76 @@ echo === Build succeeded ===
 dir /b "%OUT%\*.dll"
 
 rem --- Install --------------------------------------------------------------
-if "%DO_INSTALL%"=="1" (
-    if not exist "%INSTALL_DIR%\HaloCampaignEvolved.exe" (
-        echo.
-        echo ERROR: %INSTALL_DIR% does not look like the game directory.
-        exit /b 1
-    )
+rem
+rem Written flat, with a goto rather than one large parenthesised block.
+rem
+rem The block this replaced ended each copy with "|| exit /b 1" and looked correct.
+rem It was not: inside a parenthesised if, that abandoned the rest of the install but
+rem still left the script exiting zero, so a copy that failed reported success to
+rem whatever ran the build. That shipped a release built from one version while the
+rem game folder still held the previous one.
+if not "%DO_INSTALL%"=="1" goto :finished
+
+if not exist "%INSTALL_DIR%\HaloCampaignEvolved.exe" (
     echo.
-    echo === Installing into %INSTALL_DIR% ===
-    copy /Y "%OUT%\MultiplayerEvolved.dll" "%INSTALL_DIR%\" >nul || exit /b 1
-    copy /Y "%OUT%\version.dll"      "%INSTALL_DIR%\" >nul || exit /b 1
-    if not exist "%INSTALL_DIR%\MultiplayerEvolved" mkdir "%INSTALL_DIR%\MultiplayerEvolved"
-    xcopy /Y /E /I "%ROOT%data" "%INSTALL_DIR%\MultiplayerEvolved" >nul || exit /b 1
-    echo Installed.
+    echo ERROR: %INSTALL_DIR% does not look like the game directory.
+    exit /b 1
 )
 
+rem Say who is holding the file, before touching anything.
+rem
+rem The game keeps both DLLs mapped while it runs and Windows will not let a mapped
+rem image be replaced, so a copy over them fails with nothing more useful than
+rem "Access is denied." Naming the cause up front is the difference between closing
+rem the game and going looking for a permissions problem that does not exist.
+tasklist /FI "IMAGENAME eq HaloCampaignEvolved.exe" /NH 2>nul | find /I "HaloCampaignEvolved.exe" >nul
+if not errorlevel 1 (
+    echo.
+    echo ERROR: the game is running and holds MultiplayerEvolved.dll. Close it first.
+    echo        Nothing was copied. The game folder still has the previous build.
+    exit /b 1
+)
+
+echo.
+echo === Installing into %INSTALL_DIR% ===
+
+copy /Y "%OUT%\MultiplayerEvolved.dll" "%INSTALL_DIR%\" >nul
+if errorlevel 1 (
+    echo.
+    echo INSTALL FAILED: could not copy MultiplayerEvolved.dll into %INSTALL_DIR%.
+    echo                 The game folder still has the previous build.
+    exit /b 1
+)
+
+copy /Y "%OUT%\version.dll" "%INSTALL_DIR%\" >nul
+if errorlevel 1 (
+    echo.
+    echo INSTALL FAILED: could not copy version.dll into %INSTALL_DIR%.
+    echo                 MultiplayerEvolved.dll was replaced and version.dll was not,
+    echo                 so the two no longer match. Close the game and build again.
+    exit /b 1
+)
+
+if not exist "%INSTALL_DIR%\MultiplayerEvolved" mkdir "%INSTALL_DIR%\MultiplayerEvolved"
+xcopy /Y /E /I "%ROOT%data" "%INSTALL_DIR%\MultiplayerEvolved" >nul
+if errorlevel 1 (
+    echo.
+    echo INSTALL FAILED: could not copy the data folder into %INSTALL_DIR%\MultiplayerEvolved.
+    exit /b 1
+)
+
+rem What landed, rather than what was meant to.
+rem
+rem A copy that quietly did nothing and a copy that worked read the same from here.
+rem The size and the time tell them apart at a glance, which is the check that was
+rem missing when a stale build went out.
+echo.
+echo Installed into %INSTALL_DIR%
+for %%F in ("%INSTALL_DIR%\MultiplayerEvolved.dll" "%INSTALL_DIR%\version.dll") do (
+    echo   %%~nxF  %%~zF bytes  %%~tF
+)
+
+:finished
 endlocal
 
 
