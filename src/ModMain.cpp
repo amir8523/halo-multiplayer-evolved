@@ -1917,14 +1917,69 @@ void OnStartMatch() {
 
 /// Joins the server selected in the browser.
 void OnJoinMatch() {
-    const std::vector<unreal::ServerEntry> servers = DiscoveredServers();
-    if (servers.empty()) {
-        MPE_LOG_WARN("nothing to join: the browser found no servers");
+    // The listings, not the filtered view, because the row that was chosen was chosen out
+    // of the filtered list and has to be translated back to a Steam lobby id.
+    const std::vector<steam::LobbyListing> listings = steam::BrowseLobbies();
+
+    std::vector<steam::LobbyListing> visible;
+    for (const steam::LobbyListing& listing : listings) {
+        unreal::ServerEntry entry;
+        entry.name     = listing.name;
+        entry.mode     = listing.mode;
+        entry.map      = listing.map;
+        entry.players  = listing.members;
+        entry.capacity = listing.capacity > 0 ? listing.capacity : 10;
+        entry.ping     = listing.ping_milliseconds;
+        if (g_server_filter.Accepts(entry)) {
+            visible.push_back(listing);
+        }
+    }
+
+    if (visible.empty()) {
+        MPE_LOG_WARN("nothing to join: the browser is showing no servers");
         return;
     }
-    const unreal::ServerEntry& target = servers.front();
-    MPE_LOG_INFO("joining {} ({} on {})", target.name, target.mode, target.map);
-    OnLeaveLobby();
+
+    const std::size_t row = (g_selected_server >= 0 &&
+                             static_cast<std::size_t>(g_selected_server) < visible.size())
+                                ? static_cast<std::size_t>(g_selected_server)
+                                : 0;
+    const steam::LobbyListing& target = visible[row];
+
+    // A host pressing JOIN would leave the session everybody else is waiting in and then
+    // try to enter it again as a client, which does not work and loses the lobby.
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (!g_state || !g_state->manager) {
+            MPE_LOG_WARN("cannot join {}: networking is unavailable", target.name);
+            return;
+        }
+        if (g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
+            MPE_LOG_WARN("not joining {}: this game is hosting session {}. Leave first.",
+                        target.name, g_state->manager->Snapshot().lobby_id);
+            return;
+        }
+    }
+
+    MPE_LOG_INFO("joining '{}' ({} on {}), lobby {}, {}/{} players, {} ms", target.name,
+                target.mode, target.map, target.id, target.members, target.capacity,
+                target.ping_milliseconds);
+
+    Result joined = Result::Success();
+    {
+        std::lock_guard lock(g_state_mutex);
+        joined = g_state->manager->JoinSession(target.id);
+    }
+    if (!joined.ok()) {
+        MPE_LOG_ERROR("could not join lobby {}: {}", target.id, joined.message());
+        return;
+    }
+
+    // The lobby screen stays up. Joining is asynchronous, and the phase line in the status
+    // panel is what reports how it is going; closing the screen here would leave the player
+    // watching the main menu with no idea whether anything was happening.
+    g_screen = MultiplayerScreen::Home;
+    SwitchLobbyTab(false);
 }
 
 void MaintainMainMenuButton() {
