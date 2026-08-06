@@ -1135,13 +1135,19 @@ void LobbyManager::HandlePacket(PeerHandle peer, Channel channel,
 
     // The authorization gate. A client cannot send host authored messages and no
     // message can arrive in a phase where it makes no sense.
+    //
+    // Dropped rather than disconnected on. Arriving in the wrong phase is not evidence of
+    // an attack: a connection carries several independently ordered lanes, so a message
+    // sent after another can be delivered before it, and a message sent legitimately can
+    // land a moment after the phase it belonged to has ended. Hanging up on the peer for
+    // that turns a message worth ignoring into a session nobody can recover, which is
+    // exactly what happened to the first client that ever reached a host. Ignoring one
+    // packet costs nothing by comparison, and a peer genuinely sending nonsense is still
+    // caught by the decoder above and by the role check below.
     if (!IsMessageAcceptable(packet.type, role, ToProtocolPhase(phase_))) {
-        const auto detail = std::format("{} is not acceptable as {} while {}",
-                                        ToString(packet.type),
-                                        role == PeerRole::Host ? "host" : "client",
-                                        ToString(phase_));
-        MPE_LOG_WARN("peer {}: {}", static_cast<std::uint32_t>(peer), detail);
-        transport_.Disconnect(peer, DisconnectReason::ProtocolViolation, detail);
+        MPE_LOG_WARN("peer {}: dropping {} as {} while {}", static_cast<std::uint32_t>(peer),
+                    ToString(packet.type), role == PeerRole::Host ? "host" : "client",
+                    ToString(phase_));
         return;
     }
 
