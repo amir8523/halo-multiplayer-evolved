@@ -876,6 +876,21 @@ void TickLoop() {
                     SelectLobbyMap(pressed_index);
                     break;
 
+                case unreal::LobbyAction::RefreshServers:
+                    MPE_LOG_INFO("server list refresh requested");
+                    steam::RequestLobbyList();
+                    ApplyServerFilter();
+                    break;
+
+                case unreal::LobbyAction::SelectFriend:
+                    InviteFriendAt(pressed_index);
+                    break;
+                case unreal::LobbyAction::CloseInvite:
+                    CloseInviteList();
+                    break;
+                case unreal::LobbyAction::FriendsPrevious:
+                    PageFriendList(-1);
+                    break;
                 case unreal::LobbyAction::FriendsNext:
                     PageFriendList(1);
                     break;
