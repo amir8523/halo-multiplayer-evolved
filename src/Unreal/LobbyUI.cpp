@@ -111,6 +111,40 @@ std::uintptr_t g_empty_notice     = 0;
 /// The status panel's three lines, top right of the screen.
 std::uintptr_t g_status_line[3] = {0, 0, 0};
 
+/// One team slot's widgets, so a player joining rewrites a card instead of the screen.
+///
+/// Every part of the card is made whether or not the slot is occupied, and the parts that
+/// do not apply are collapsed. Building both states up front is what lets somebody
+/// arriving in the lobby appear on it without touching the widget tree.
+struct SlotWidgets {
+    std::uintptr_t backing{0};   ///< The card itself; its colour marks occupied or empty.
+    std::uintptr_t strip{0};     ///< The team coloured bar along the top of a filled card.
+    std::uintptr_t name{0};      ///< Who is in it.
+    std::uintptr_t role{0};      ///< Owner or Player.
+    std::uintptr_t plus{0};      ///< The invite glyph on an empty card.
+    std::uintptr_t button{0};    ///< The whole card, pressable while empty.
+};
+constexpr int kTeamSlots = 5;
+/// [0] blue, [1] red, matching the order the columns are drawn in.
+SlotWidgets    g_slot[2][kTeamSlots];
+/// The "n/5" beside each team title, rewritten as people come and go.
+std::uintptr_t g_team_heading[2] = {0, 0};
+
+/// One row of the invite list.
+struct FriendRowWidgets {
+    std::uintptr_t highlight{0}; ///< Marks a row an invite has already gone to.
+    std::uintptr_t button{0};
+    std::uintptr_t name{0};
+    std::uintptr_t status{0};
+};
+FriendRowWidgets g_friend_row[kFriendRows];
+
+/// The invite list's own widgets. Built with the lobby and kept collapsed.
+std::uintptr_t g_invite_panel  = 0; ///< The canvas holding all of it.
+std::uintptr_t g_friend_empty  = 0; ///< Shown when there is nobody to list.
+std::uintptr_t g_friend_page   = 0; ///< The page indicator between the paging buttons.
+bool           g_invite_open   = false;
+
 /// Builds widgets and places them on a canvas.
 ///
 /// Every call here is an engine call on the game thread, so the builder keeps them to the
@@ -596,7 +630,6 @@ public:
         (void)memory::GuardedWrite(block + kFontSize, &size, sizeof(size));
     }
 
-private:
     /// Makes a border draw a solid rectangle in a colour.
     ///
     /// Colour alone is not enough. A newly created border's background brush has DrawAs set
@@ -609,6 +642,9 @@ private:
     ///     brush +0x1C DrawAs
     ///   Border +0x280 BrushColor
     void SetBorderColour(std::uintptr_t border, LinearColour colour) const {
+        if (border == 0) {
+            return;
+        }
         constexpr std::uintptr_t kBackground   = 0x1C0;
         constexpr std::uintptr_t kTintColour   = kBackground + 0x08;
         constexpr std::uintptr_t kTintRule     = kBackground + 0x08 + 0x10;
@@ -623,49 +659,48 @@ private:
         (void)memory::GuardedWrite(border + kBrushColour, &colour, sizeof(colour));
     }
 
+private:
     const LobbyUIContext& context_;
 };
 
-/// Draws one player card, filled or empty.
-void DrawPlayerCard(const Builder& builder, std::uintptr_t canvas, float x, float y,
-                    std::string_view name, bool occupied, bool host, LinearColour team,
-                    std::vector<LobbyControl>* controls = nullptr,
-                    LobbyAction invite = LobbyAction::None) {
+/// Builds one player card with both of its states, and records the pieces.
+///
+/// Occupied and empty are not separate cards. A slot fills when somebody joins and empties
+/// when they leave, and both happen while the lobby is on screen, so a card that could only
+/// be drawn one way would need the screen rebuilt underneath the player every time the
+/// roster changed. Everything is created here and SetLobbyRoster decides what shows.
+void BuildPlayerCard(const Builder& builder, std::uintptr_t canvas, SlotWidgets& out,
+                     float x, float y, LinearColour team, std::vector<LobbyControl>& controls,
+                     LobbyAction invite, int index) {
     constexpr float kCardWidth  = 132.0F;
     constexpr float kCardHeight = 168.0F;
 
-    (void)builder.Panel(canvas, x, y, kCardWidth, kCardHeight,
-                        occupied ? kAccentDim : kSlot);
+    out.backing = builder.Panel(canvas, x, y, kCardWidth, kCardHeight, kSlot);
 
-    if (occupied) {
-        // A filled card carries the name and the role, with a team coloured strip so the
-        // side is readable at a glance rather than only from the column heading.
-        (void)builder.Panel(canvas, x, y, kCardWidth, 4.0F, team);
-        (void)builder.Text(canvas, x + 8.0F, y + kCardHeight - 46.0F, kCardWidth - 16.0F,
-                           22.0F, name, kText);
-        (void)builder.Text(canvas, x + 8.0F, y + kCardHeight - 24.0F, kCardWidth - 16.0F,
-                           18.0F, host ? "Owner" : "Player", kTextDim);
-    } else if (controls != nullptr && invite != LobbyAction::None) {
-        // An empty slot is a real button, so pressing it invites somebody into this
-        // session rather than merely drawing a plus sign that does nothing.
-        // The whole card is the target, but the plus is drawn rather than being the
-        // button's own label.
-        //
-        // A button is scaled to fit its box, and the frontend's button art is wide, so a
-        // card this narrow crushes it to about a fifth of its size and the label with it.
-        // Drawing the plus as text and putting the button behind it, non interactive, gives
-        // a glyph as large as the card allows while the whole card stays pressable.
-        controls->push_back(
-            {builder.Button(canvas, x, y, kCardWidth, kCardHeight, " ", kStretchFill),
-             invite, 0});
-        const std::uintptr_t plus =
-            builder.Text(canvas, x + kCardWidth * 0.30F, y + kCardHeight * 0.28F,
-                         kCardWidth, 80.0F, "+", kSlotMark, 72.0F);
-        builder.SetVisibilityOf(plus, kHitTestInvisible);
-    } else {
-        (void)builder.Text(canvas, x + 8.0F, y + kCardHeight - 32.0F, kCardWidth - 16.0F,
-                           20.0F, "+", kAccent);
-    }
+    // An empty slot is a real button, so pressing it opens the invite list rather than
+    // merely drawing a plus sign that does nothing.
+    //
+    // A button is scaled to fit its box, and the frontend's button art is wide, so a card
+    // this narrow crushes it to about a fifth of its size and the label with it. Drawing
+    // the plus as text and putting the button behind it, non interactive, gives a glyph as
+    // large as the card allows while the whole card stays pressable.
+    out.button = builder.Button(canvas, x, y, kCardWidth, kCardHeight, " ", kStretchFill);
+    controls.push_back({out.button, invite, index});
+
+    out.plus = builder.Text(canvas, x + kCardWidth * 0.30F, y + kCardHeight * 0.28F,
+                            kCardWidth, 80.0F, "+", kSlotMark, 72.0F);
+    builder.SetVisibilityOf(out.plus, kHitTestInvisible);
+
+    // The filled state: a team coloured strip so the side is readable at a glance rather
+    // than only from the column heading, then the name and the role.
+    out.strip = builder.Panel(canvas, x, y, kCardWidth, 4.0F, team);
+    out.name  = builder.Text(canvas, x + 8.0F, y + kCardHeight - 46.0F, kCardWidth - 16.0F,
+                             22.0F, "", kText);
+    out.role  = builder.Text(canvas, x + 8.0F, y + kCardHeight - 24.0F, kCardWidth - 16.0F,
+                             18.0F, "Player", kTextDim);
+    builder.SetVisibilityOf(out.strip, kCollapsedValue);
+    builder.SetVisibilityOf(out.name, kCollapsedValue);
+    builder.SetVisibilityOf(out.role, kCollapsedValue);
 }
 
 /// The HOST tab.
@@ -712,22 +747,21 @@ void DrawHostTab(const Builder& builder, std::uintptr_t canvas, const LobbyView&
         Column{"RED TEAM", kRed, &view.red, 940.0F},
     };
 
-    for (const Column& column : columns) {
-        (void)builder.Label(canvas, column.x - 4.0F, 180.0F, 400.0F, 72.0F,
-                            std::format("{} ({}/5)", column.title,
-                                        column.players->size()));
-        for (int slot = 0; slot < 5; ++slot) {
+    for (std::size_t side = 0; side < columns.size(); ++side) {
+        const Column& column = columns[side];
+        // The title keeps the frontend's own heading art; only the count changes, so only
+        // the count is a text block that can be rewritten in place.
+        (void)builder.Label(canvas, column.x - 4.0F, 180.0F, 400.0F, 72.0F, column.title);
+        g_team_heading[side] = builder.Text(canvas, column.x + 300.0F, 202.0F, 120.0F, 30.0F,
+                                            "0/5", kAccent, 21.0F);
+        for (int slot = 0; slot < kTeamSlots; ++slot) {
             const float x = column.x + static_cast<float>(slot % 3) * 144.0F;
             const float y = 250.0F + static_cast<float>(slot / 3) * 180.0F;
-            const bool  occupied = slot < static_cast<int>(column.players->size());
-            const std::string name = occupied ? (*column.players)[static_cast<std::size_t>(slot)]
-                                              : std::string{};
-            DrawPlayerCard(builder, canvas, x, y, name, occupied,
-                           occupied && name == view.host_name, column.colour, &controls,
-                           column.colour.r > column.colour.b ? LobbyAction::InviteRed
-                                                             : LobbyAction::InviteBlue);
+            BuildPlayerCard(builder, canvas, g_slot[side][slot], x, y, column.colour, controls,
+                            side == 0 ? LobbyAction::InviteBlue : LobbyAction::InviteRed, slot);
         }
     }
+    SetLobbyRoster(builder.Context(), view.blue, view.red, view.host_name);
 
     // Right: settings and server name.
     (void)builder.Backer(canvas, 1440.0F, 250.0F, 440.0F, 190.0F, kPanelLight);
@@ -876,6 +910,68 @@ void DrawBrowseTab(const Builder& builder, std::uintptr_t canvas, const LobbyVie
                         LobbyAction::Back, 0});
 
     SetLobbyServers(builder.Context(), view.servers, view.selected_server);
+}
+
+/// The invite list, drawn over the lobby.
+///
+/// WHY THE MOD DRAWS THIS RATHER THAN USING WHAT ALREADY EXISTS
+///
+/// There are two invite screens in reach and neither one works here. Steam's own dialog is
+/// drawn by the in-game overlay, which is enabled in this process and does not render over
+/// this title, so opening it succeeds and nothing appears. The game's invite screen sends
+/// its invitations through PlayFab to a co-op fireteam, which is a different system from
+/// the Steam lobby this session is, and pointing it at a Steam lobby id is not something it
+/// has a way to express.
+///
+/// So the list is built from the friends Steam reports and each row invites one person to
+/// this lobby directly, which needs no overlay and no fireteam.
+void DrawInvitePanel(const Builder& builder, std::uintptr_t canvas,
+                     std::vector<LobbyControl>& controls) {
+    // Full bleed, and deliberately opaque enough to read against. This also swallows every
+    // click that misses a row, so the lobby underneath cannot be operated by accident while
+    // a modal choice is open.
+    (void)builder.Panel(canvas, 0.0F, 0.0F, kDesignWidth, kDesignHeight, {0, 0, 0, 0.78F});
+
+    (void)builder.Backer(canvas, 580.0F, 150.0F, 760.0F, 840.0F, kPanel);
+    (void)builder.Panel(canvas, 604.0F, 228.0F, 712.0F, 2.0F, kAccent);
+    (void)builder.Text(canvas, 604.0F, 182.0F, 712.0F, 40.0F, "INVITE TO THIS SESSION",
+                       kAccent, 26.0F);
+    (void)builder.Text(canvas, 604.0F, 236.0F, 712.0F, 26.0F,
+                       "Anyone here joins this multiplayer session, not a fireteam.",
+                       kTextDim, 17.0F);
+
+    float row_y = 278.0F;
+    for (int index = 0; index < kFriendRows; ++index) {
+        FriendRowWidgets& row = g_friend_row[index];
+        row.highlight = builder.Panel(canvas, 600.0F, row_y, 720.0F, 52.0F, kAccentDim);
+        row.button    = builder.Button(canvas, 600.0F, row_y, 720.0F, 52.0F, " ",
+                                       kStretchFill);
+        row.name      = builder.Text(canvas, 618.0F, row_y + 12.0F, 500.0F, 30.0F, "", kText,
+                                     22.0F);
+        row.status    = builder.Text(canvas, 1130.0F, row_y + 14.0F, 180.0F, 28.0F, "",
+                                     kTextDim, 18.0F);
+        builder.SetVisibilityOf(row.name, kHitTestInvisible);
+        builder.SetVisibilityOf(row.status, kHitTestInvisible);
+        builder.SetVisibilityOf(row.highlight, kCollapsedValue);
+        builder.SetVisibilityOf(row.button, kCollapsedValue);
+        controls.push_back({row.button, LobbyAction::SelectFriend, index});
+        row_y += 58.0F;
+    }
+
+    g_friend_empty = builder.Text(canvas, 604.0F, 420.0F, 712.0F, 40.0F,
+                                  "Nobody on your Steam friends list is online.", kTextDim,
+                                  22.0F);
+    builder.SetVisibilityOf(g_friend_empty, kHitTestInvisible);
+
+    controls.push_back({builder.Button(canvas, 600.0F, 866.0F, 210.0F, 62.0F, "PREV"),
+                        LobbyAction::FriendsPrevious, 0});
+    controls.push_back({builder.Button(canvas, 1110.0F, 866.0F, 210.0F, 62.0F, "NEXT"),
+                        LobbyAction::FriendsNext, 0});
+    g_friend_page = builder.Text(canvas, 830.0F, 880.0F, 260.0F, 30.0F, "", kTextDim, 19.0F);
+    builder.SetVisibilityOf(g_friend_page, kHitTestInvisible);
+
+    controls.push_back({builder.Button(canvas, 600.0F, 916.0F, 720.0F, 74.0F, "CLOSE"),
+                        LobbyAction::CloseInvite, 0});
 }
 
 } // namespace
@@ -1228,6 +1324,20 @@ void RemoveLobbyUI(const LobbyUIContext& context) {
     g_open_lobby_root   = 0;
     g_host_tab          = 0;
     g_browse_tab        = 0;
+    g_invite_panel      = 0;
+    g_invite_open       = false;
+    g_friend_empty      = 0;
+    g_friend_page       = 0;
+    for (FriendRowWidgets& row : g_friend_row) {
+        row = FriendRowWidgets{};
+    }
+    for (auto& side : g_slot) {
+        for (SlotWidgets& card : side) {
+            card = SlotWidgets{};
+        }
+    }
+    g_team_heading[0] = 0;
+    g_team_heading[1] = 0;
 
     // The menu comes back with the lobby's departure, not on a separate call, so there is
     // no path that closes the lobby and leaves the player looking at an empty screen.
@@ -1612,6 +1722,15 @@ Result BuildLobbyUI(const LobbyUIContext& context, const LobbyView& view,
     if (g_browse_tab != 0) {
         DrawBrowseTab(builder, g_browse_tab, view, out_controls);
     }
+
+    // Last, so it is on top of both tabs: a canvas draws its children in the order they
+    // were added, and a modal that the lobby can be clicked through is not a modal.
+    g_invite_panel = builder.Canvas(root, 0.0F, 0.0F, kDesignWidth, kDesignHeight);
+    if (g_invite_panel != 0) {
+        DrawInvitePanel(builder, g_invite_panel, out_controls);
+    }
+    ShowInvitePanel(context, false);
+
     SetLobbyTab(context, view.browsing);
     SetLobbyMode(context, view.mode == "SLAYER");
     {
@@ -1654,6 +1773,9 @@ void ShowLobbyUI(const LobbyUIContext& context, bool visible) {
         return;
     }
 
+    // A modal does not survive the screen it was opened over.
+    ShowInvitePanel(context, false);
+
     // Handed back before the lobby goes away, for the same reason in reverse.
     if (context.outer != 0) {
         (void)InstallGameThreadPump(context.outer);
@@ -1678,6 +1800,97 @@ void ShowLobbyUI(const LobbyUIContext& context, bool visible) {
     // focus target focuses the game viewport, which is the state the menu was in before
     // the lobby ever opened, and every widget under it hit tests normally again.
     FocusLobby(context, kFocusTheViewport);
+}
+
+void ShowInvitePanel(const LobbyUIContext& context, bool visible) {
+    if (g_invite_panel == 0) {
+        return;
+    }
+    // SelfHitTestInvisible on the canvas, not Visible: the canvas covers the whole design
+    // and would otherwise be the thing every click lands on. Its children, including the
+    // dimming panel behind the card, still hit test normally.
+    SetWidgetVisibility(context, g_invite_panel,
+                        visible ? kSelfHitTestInvisible : kCollapsedValue);
+    g_invite_open = visible;
+}
+
+bool InvitePanelIsOpen() {
+    return g_invite_open;
+}
+
+void SetLobbyFriends(const LobbyUIContext& context, const std::vector<LobbyFriend>& friends,
+                     int page) {
+    const Builder builder(context);
+
+    const int total = static_cast<int>(friends.size());
+    const int pages = (total + kFriendRows - 1) / kFriendRows;
+    const int shown = (page < 0) ? 0 : page;
+    const int first = shown * kFriendRows;
+
+    for (int index = 0; index < kFriendRows; ++index) {
+        FriendRowWidgets& row  = g_friend_row[index];
+        const int         from = first + index;
+        if (from >= total) {
+            builder.SetVisibilityOf(row.button, kCollapsedValue);
+            builder.SetVisibilityOf(row.highlight, kCollapsedValue);
+            builder.SetTextLive(row.name, "");
+            builder.SetTextLive(row.status, "");
+            continue;
+        }
+
+        const LobbyFriend& entry = friends[static_cast<std::size_t>(from)];
+        builder.SetVisibilityOf(row.button, kVisibleValue);
+        builder.SetVisibilityOf(row.highlight, entry.invited ? kHitTestInvisible
+                                                             : kCollapsedValue);
+        builder.SetTextLive(row.name, entry.name);
+        if (entry.invited) {
+            builder.SetTextLive(row.status, "INVITED");
+            builder.SetColourLive(row.status, kAccent);
+        } else if (entry.in_game) {
+            builder.SetTextLive(row.status, "IN GAME");
+            builder.SetColourLive(row.status, kGood);
+        } else {
+            builder.SetTextLive(row.status, "ONLINE");
+            builder.SetColourLive(row.status, kTextDim);
+        }
+    }
+
+    builder.SetVisibilityOf(g_friend_empty, total == 0 ? kHitTestInvisible : kCollapsedValue);
+    builder.SetTextLive(g_friend_page,
+                        pages > 1 ? std::format("PAGE {} OF {}", shown + 1, pages)
+                                  : std::string{});
+}
+
+void SetLobbyRoster(const LobbyUIContext& context, const std::vector<std::string>& blue,
+                    const std::vector<std::string>& red, const std::string& host_name) {
+    const Builder                     builder(context);
+    const std::vector<std::string>*   sides[2] = {&blue, &red};
+
+    for (std::size_t side = 0; side < 2; ++side) {
+        const std::vector<std::string>& players = *sides[side];
+        for (int slot = 0; slot < kTeamSlots; ++slot) {
+            SlotWidgets& card = g_slot[side][slot];
+            const bool   occupied = slot < static_cast<int>(players.size());
+
+            // The button stays hit testable only while the slot is empty, so a card with
+            // somebody in it cannot be pressed to invite somebody else into it.
+            builder.SetVisibilityOf(card.button, occupied ? kCollapsedValue : kVisibleValue);
+            builder.SetVisibilityOf(card.plus, occupied ? kCollapsedValue : kHitTestInvisible);
+            builder.SetVisibilityOf(card.strip, occupied ? kHitTestInvisible : kCollapsedValue);
+            builder.SetVisibilityOf(card.name, occupied ? kHitTestInvisible : kCollapsedValue);
+            builder.SetVisibilityOf(card.role, occupied ? kHitTestInvisible : kCollapsedValue);
+            builder.SetBorderColour(card.backing, occupied ? kAccentDim : kSlot);
+
+            if (!occupied) {
+                continue;
+            }
+            const std::string& name = players[static_cast<std::size_t>(slot)];
+            builder.SetTextLive(card.name, name);
+            builder.SetTextLive(card.role, name == host_name ? "Owner" : "Player");
+        }
+        builder.SetTextLive(g_team_heading[side],
+                            std::format("{}/{}", players.size(), kTeamSlots));
+    }
 }
 
 void SetLobbyTab(const LobbyUIContext& context, bool browsing) {

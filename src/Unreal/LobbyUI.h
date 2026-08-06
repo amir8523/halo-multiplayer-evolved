@@ -102,7 +102,26 @@ enum class LobbyAction {
     SelectServer,
     /// A map on the HOST tab. The index into kLobbyMaps is carried on the control.
     SelectMap,
+    /// A row in the invite list. The row index is carried on the control.
+    SelectFriend,
+    /// Dismisses the invite list without inviting anybody.
+    CloseInvite,
+    /// Pages the invite list, for a friends list longer than one screen.
+    FriendsPrevious,
+    FriendsNext,
 };
+
+/// One row in the invite list.
+struct LobbyFriend {
+    std::string name;
+    /// True when Steam reports them in this game, which is who can accept immediately.
+    bool in_game{false};
+    /// True once an invite has been sent to them from this lobby.
+    bool invited{false};
+};
+
+/// How many invite rows the panel draws. A longer friends list is paged.
+inline constexpr int kFriendRows = 10;
 
 /// How the server browser is filtered.
 struct ServerFilter {
@@ -361,6 +380,33 @@ void SetLobbyServers(const LobbyUIContext& context, const std::vector<ServerEntr
 ///
 /// Must run on the game thread.
 void SetLobbyFilters(const LobbyUIContext& context, const ServerFilter& filter);
+
+/// Shows or hides the invite list over the lobby.
+///
+/// Drawn as part of the lobby and kept collapsed, for the same reason the tabs are: this
+/// has to appear the instant a slot is pressed, and creating a panel's worth of widgets on
+/// the game thread is not instant. Must run on the game thread.
+void ShowInvitePanel(const LobbyUIContext& context, bool visible);
+
+/// True while the invite list is on screen.
+[[nodiscard]] bool InvitePanelIsOpen();
+
+/// Rewrites the invite list in place.
+///
+/// page is which block of kFriendRows to show, so a friends list longer than the panel is
+/// reachable rather than truncated. Must run on the game thread.
+void SetLobbyFriends(const LobbyUIContext& context, const std::vector<LobbyFriend>& friends,
+                     int page);
+
+/// Rewrites the team slots in place with who is actually in the session.
+///
+/// The cards are built once and only their text and visibility change, so a player joining
+/// costs a handful of writes rather than rebuilding the screen. Names are the Steam persona
+/// names the lobby reports, so a slot shows who is in it rather than a number.
+///
+/// Must run on the game thread.
+void SetLobbyRoster(const LobbyUIContext& context, const std::vector<std::string>& blue,
+                    const std::vector<std::string>& red, const std::string& host_name);
 
 /// Reads what the player typed as the server name.
 ///
