@@ -364,6 +364,16 @@ struct LobbyStatus {
     /// The version line, including whether an update is waiting.
     std::string version;
     bool        update_available{false};
+    /// True once a new build has been downloaded and is waiting to be swapped in.
+    ///
+    /// This is not the same as an update being available. A mapped DLL cannot replace
+    /// itself, so the new build sits beside the running one until the next start, and the
+    /// only thing that finishes the update is the player closing the game and opening it
+    /// again. Told plainly, because a player who does not restart keeps running the old
+    /// build while the screen says the update succeeded.
+    bool        restart_required{false};
+    /// The version that is staged and will be in use after a restart.
+    std::string staged_version;
 };
 
 /// Rewrites the status panel in place. Must run on the game thread.

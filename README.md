@@ -7,7 +7,7 @@
 
 **The multiplayer Halo: Campaign Evolved should have shipped with.**
 
-[![Version](https://img.shields.io/badge/version-0.1.3-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.1.4-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Download](https://img.shields.io/badge/download-latest%20release-2ea44f?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -60,8 +60,15 @@ That is the whole install. To uninstall, delete those three things.
 ### It updates itself
 
 You never have to come back here. The mod checks for a new version every time the
-game starts, downloads it quietly in the background, and installs it the next time
-you launch. The lobby shows you what it is doing in the top right corner.
+game starts and downloads it quietly in the background. The lobby's top right
+corner shows what it is doing: `UPDATE FOUND`, then `DOWNLOADING 47%`, then
+`UPDATE INSTALLED`.
+
+**One update needs one restart.** Windows will not let a file replace itself while
+it is loaded, so the new version is saved next to the running one and swapped in
+the next time the game starts. When you see `UPDATE INSTALLED`, quit the game and
+open it again. Until you do, you are still playing the old version, and the lobby
+says so in the top left so you cannot miss it.
 
 If an update ever goes wrong, the previous version is kept next to it as
 `MultiplayerEvolved.dll.backup`, so nothing is lost.

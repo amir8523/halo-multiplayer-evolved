@@ -274,7 +274,7 @@ int                         g_friend_page = 0;
 
 /// This build's version, compared against the newest GitHub release to decide whether the
 /// status panel should tell the player to update.
-constexpr const char* kModVersion = "0.1.3";
+constexpr const char* kModVersion = "0.1.4";
 
 /// The newest version seen on GitHub, empty until a check has succeeded.
 ///
@@ -1708,8 +1708,10 @@ void RefreshLobbyStatus() {
     }
     const bool behind = !latest.empty() && update::IsNewer(latest, kModVersion);
     status.update_available = behind;
+    status.restart_required = staged;
+    status.staged_version   = staged ? latest : std::string{};
     if (staged) {
-        status.version = std::format("v{}  UPDATE {} READY  RESTART", kModVersion, latest);
+        status.version = std::format("v{}  UPDATE {} INSTALLED", kModVersion, latest);
     } else if (progress >= 0) {
         status.version = std::format("v{}  DOWNLOADING {}%", kModVersion, progress);
     } else if (behind) {
