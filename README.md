@@ -7,7 +7,7 @@
 
 **The multiplayer Halo: Campaign Evolved should have shipped with.**
 
-[![Version](https://img.shields.io/badge/version-0.1.5-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.1.6-00b4d8?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Download](https://img.shields.io/badge/download-latest%20release-2ea44f?style=for-the-badge)](https://github.com/k3sra/halo-multiplayer-evolved/releases/latest)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -146,6 +146,7 @@ Everything technical lives in the docs rather than here.
 
 | Document | What is in it |
 | --- | --- |
+| [AGENTS.md](AGENTS.md) | Commands, conventions, and the engine facts that cost time to learn. Read first |
 | [Architecture](docs/00-ARCHITECTURE.md) | Why the game's simulation is a Blam engine, and what that means |
 | [Engine binding](docs/04-ENGINE-BINDING.md) | Measured findings about the shipped binary |
 | [Map format](docs/02-MAP-FORMAT.md) | The map model and its canonical binary form |

@@ -241,7 +241,38 @@ struct MenuRow {
                                    std::vector<std::uintptr_t>& out_buttons);
 
 /// Resolves the plan. Safe to call from any thread; does no engine calls.
-[[nodiscard]] Result ResolveMenuButtonPlan(const ObjectArray& objects, MenuButtonPlan& out_plan);
+/// Works out everything needed to add one entry to the main menu.
+///
+/// known_menu is the live WBP_MainMenu_C, which the caller has usually just found. Pass it
+/// and the object array is not scanned at all: the parts that never change are resolved on
+/// the first call and kept, so a menu appearing costs a few guarded reads rather than a
+/// pass over fifty thousand objects at the exact moment the player is waiting to see the
+/// entry. Pass zero to have the menu located as well.
+[[nodiscard]] Result ResolveMenuButtonPlan(const ObjectArray& objects,
+                                           std::uintptr_t known_menu, MenuButtonPlan& out_plan);
+
+/// Resolves the parts of the plan that do not depend on a menu, ahead of there being one.
+///
+/// Everything except the live menu is fixed for the process: the button class, the two
+/// libraries, the four functions and the player controller. Finding them costs a pass over
+/// the object array, and doing it when the menu appears spends that pass at the one moment
+/// the player is watching an empty menu waiting for the entry.
+///
+/// Call it repeatedly while the game loads. It returns false until the classes it needs
+/// exist, and does nothing once it has succeeded.
+[[nodiscard]] bool WarmMenuButtonPlan(const ObjectArray& objects);
+
+/// Supplies the menu independent pieces from a pass the caller has already made.
+///
+/// The caller walks the object array to find the menu, and the same walk sees the button
+/// class, the libraries, the functions and the controller. Handing them over means
+/// ResolveMenuButtonPlan makes no pass of its own, so adding the entry costs one walk
+/// rather than two, back to back, at the moment the player is looking at a menu that has
+/// no entry on it.
+///
+/// Ignored unless every required piece is present, so a partial pass cannot poison the
+/// cache: the resolver simply falls back to scanning for itself.
+void SeedMenuButtonPlan(const MenuButtonPlan& pieces);
 
 /// Applies a resolved plan. Must run on the game thread.
 [[nodiscard]] Result ApplyMenuButtonPlan(const MenuButtonPlan& plan, std::string_view label,

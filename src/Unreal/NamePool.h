@@ -47,6 +47,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -121,6 +122,23 @@ private:
     [[nodiscard]] std::uintptr_t BlockAt(std::uint32_t block) const;
 
     std::uintptr_t blocks_address_{0}; ///< Address of Blocks[0].
+
+    /// Resolved names, kept for the life of the pool.
+    ///
+    /// An FName's text never changes once the name exists: the pool only ever appends, and
+    /// an index always refers to the same string. So resolving one twice is repeating work
+    /// that cannot have a different answer.
+    ///
+    /// It is worth caching because walking the object array resolves two names per object,
+    /// and the array holds around fifty thousand of them. Every pass was a hundred thousand
+    /// block lookups, readability checks and string constructions, and passes happen on a
+    /// timer for the whole of the game's startup.
+    ///
+    /// Held behind a shared pointer so the pool stays copyable and movable, which it has to
+    /// be because it is moved into the mod's state after being located. Copies share one
+    /// cache, which is what you want: they describe the same pool.
+    struct Cache;
+    std::shared_ptr<Cache> cache_;
 };
 
 } // namespace mpe::unreal
