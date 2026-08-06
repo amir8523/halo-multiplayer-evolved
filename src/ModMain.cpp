@@ -57,6 +57,8 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <format>
 #include <memory>
 #include <mutex>
@@ -198,6 +200,13 @@ void CaptureServerName();
 void OpenSessionInvite();
 void RefreshLobbyStatus();
 void PrepareLobby();
+void InviteFriendAt(int row);
+void CloseInviteList();
+void PageFriendList(int direction);
+void ShowInviteList(bool visible);
+void RefreshLobbyRoster();
+[[nodiscard]] std::string LoadServerName();
+void                      SaveServerName(const std::string& name);
 
 /// Which multiplayer screen is showing.
 ///
@@ -252,9 +261,20 @@ int                  g_selected_server = 0;
 /// Remembering it means the player's click is honoured a moment later rather than lost.
 bool g_invite_pending = false;
 
+/// The invite list, as it is currently shown.
+///
+/// Read from Steam when a slot is pressed rather than continuously: the friends list only
+/// changes when somebody signs in or out, and asking on every frame would be a call into
+/// the Steam client sixty times a second for a panel that is usually not even open.
+std::vector<unreal::LobbyFriend> g_friend_list;
+/// Steam ids matching g_friend_list, kept apart from it because the screen has no use for
+/// them and inviting is the only thing that does.
+std::vector<steam::SteamId> g_friend_ids;
+int                         g_friend_page = 0;
+
 /// This build's version, compared against the newest GitHub release to decide whether the
 /// status panel should tell the player to update.
-constexpr const char* kModVersion = "0.1.2";
+constexpr const char* kModVersion = "0.1.3";
 
 /// The newest version seen on GitHub, empty until a check has succeeded.
 ///
@@ -717,6 +737,22 @@ void TickLoop() {
         }
 
         RefreshLobbyStatus();
+        RefreshLobbyRoster();
+
+        // The name is picked up on a short interval rather than only when a match starts.
+        //
+        // Two reasons, both about it being visible. The length limit is applied where the
+        // field is read, so reading rarely would let an over long name sit on screen
+        // looking accepted; and the name is what the session advertises, so a player who
+        // types one and then walks away should still be findable under it.
+        if (unreal::LobbyIsBuilt() && g_screen != MultiplayerScreen::ServerBrowser) {
+            static auto s_last_name = std::chrono::steady_clock::time_point{};
+            const auto  now         = std::chrono::steady_clock::now();
+            if (now - s_last_name >= std::chrono::seconds(2)) {
+                s_last_name = now;
+                CaptureServerName();
+            }
+        }
 
         // The browser refreshes itself while it is open.
         //
@@ -857,6 +893,25 @@ void TickLoop() {
                     break;
                 case unreal::LobbyAction::SelectMap:
                     SelectLobbyMap(pressed_index);
+                    break;
+
+                case unreal::LobbyAction::RefreshServers:
+                    MPE_LOG_INFO("server list refresh requested");
+                    steam::RequestLobbyList();
+                    ApplyServerFilter();
+                    break;
+
+                case unreal::LobbyAction::SelectFriend:
+                    InviteFriendAt(pressed_index);
+                    break;
+                case unreal::LobbyAction::CloseInvite:
+                    CloseInviteList();
+                    break;
+                case unreal::LobbyAction::FriendsPrevious:
+                    PageFriendList(-1);
+                    break;
+                case unreal::LobbyAction::FriendsNext:
+                    PageFriendList(1);
                     break;
             }
         }
@@ -1144,6 +1199,12 @@ void OnMultiplayerClicked() {
         g_lobby.AddPlayer(SteamPlayerName(), true);
     }
 
+    // Whatever this player called their game last time, so it is typed once rather than
+    // once per launch.
+    if (g_lobby.server_name.empty()) {
+        g_lobby.server_name = LoadServerName();
+    }
+
     // The screen is ordinary UMG: tabs, two team columns of player cards, a settings panel
     // and a server table, created with SpawnObject and placed on the menu's own canvas. An
     // earlier version built a list of menu rows instead, which was never going to reach
@@ -1217,10 +1278,54 @@ void SwitchLobbyTab(bool browsing) {
     (void)unreal::RunOnGameThread([&]() { unreal::SetLobbyTab(ui, browsing); }, 5000);
 }
 
+/// Where the server name is kept between sessions.
+[[nodiscard]] std::filesystem::path ServerNamePath() {
+    return DataDirectory() / "server-name.txt";
+}
+
+/// Remembers the server name so it does not have to be typed again next time.
+void SaveServerName(const std::string& name) {
+    static std::string s_saved;
+    if (name == s_saved) {
+        return;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(DataDirectory(), error);
+    std::ofstream file(ServerNamePath(), std::ios::binary | std::ios::trunc);
+    if (!file) {
+        MPE_LOG_WARN("could not write {}", ServerNamePath().string());
+        return;
+    }
+    file.write(name.data(), static_cast<std::streamsize>(name.size()));
+    s_saved = name;
+    MPE_LOG_INFO("server name saved as '{}'", name);
+}
+
+/// Reads back a previously saved server name, or nothing on the first run.
+[[nodiscard]] std::string LoadServerName() {
+    std::ifstream file(ServerNamePath(), std::ios::binary);
+    if (!file) {
+        return {};
+    }
+    std::string name((std::istreambuf_iterator<char>(file)),
+                     std::istreambuf_iterator<char>());
+    // Trailing whitespace comes from anyone who edits the file by hand, and a name with a
+    // newline on the end is advertised with a newline on the end.
+    while (!name.empty() && (name.back() == '\n' || name.back() == '\r' ||
+                             name.back() == ' ' || name.back() == '\t')) {
+        name.pop_back();
+    }
+    if (name.size() > unreal::kMaxServerNameLength) {
+        name.resize(unreal::kMaxServerNameLength);
+    }
+    return name;
+}
+
 /// Takes whatever the player typed into the server name field.
 ///
 /// Read on demand rather than tracked as it is typed: the field owns its own text, so
-/// asking it at the moment the name matters is both simpler and always current.
+/// asking it at the moment the name matters is both simpler and always current. Reading is
+/// also what enforces the length limit, because that is where the field is corrected.
 void CaptureServerName() {
     if (!g_lobby_ui_ready) {
         return;
@@ -1231,10 +1336,12 @@ void CaptureServerName() {
     }
     std::string typed;
     (void)unreal::RunOnGameThread([&]() { typed = unreal::ReadServerName(ui); }, 5000);
-    if (!typed.empty()) {
-        g_lobby.server_name = typed;
-        MPE_LOG_INFO("server name is '{}'", g_lobby.server_name);
+    if (typed.empty() || typed == g_lobby.server_name) {
+        return;
     }
+    g_lobby.server_name = typed;
+    MPE_LOG_INFO("server name is '{}'", g_lobby.server_name);
+    SaveServerName(g_lobby.server_name);
 }
 
 /// Makes sure a real, joinable session exists behind the lobby screen.
@@ -1320,22 +1427,111 @@ void OpenSessionInvite() {
     g_invite_pending = false;
     PublishSessionDetails();
 
-    // Invited one person at a time, never in bulk.
+    // Read now, not continuously, and never invited in bulk.
     //
-    // An earlier version invited every friend it could see the moment a slot was pressed.
-    // That is spam, and the call used to filter the list to people actually in this game
-    // crashed inside steamclient. Both are gone: the roster is read, reported, and the
-    // overlay is offered so a specific person can be chosen.
+    // An earlier version invited every friend it could see the moment a slot was pressed,
+    // which is spam whether or not anyone accepts. The list is shown instead and one row
+    // sends one invitation.
     const std::vector<steam::GameFriend> friends = steam::FriendsInGame();
-    MPE_LOG_INFO("{} friend(s) available to invite to session {}", friends.size(), lobby);
 
-    steam::ActivateGameOverlayInviteDialog(lobby);
-    MPE_LOG_INFO("invite requested for session {}", lobby);
+    g_friend_list.clear();
+    g_friend_ids.clear();
+    g_friend_list.reserve(friends.size());
+    g_friend_ids.reserve(friends.size());
+    for (const steam::GameFriend& entry : friends) {
+        unreal::LobbyFriend row;
+        row.name    = entry.name;
+        row.in_game = entry.in_this_game;
+        g_friend_list.push_back(std::move(row));
+        g_friend_ids.push_back(entry.id);
+    }
+    g_friend_page = 0;
+
+    const std::size_t in_game = static_cast<std::size_t>(
+        std::count_if(friends.begin(), friends.end(),
+                      [](const steam::GameFriend& f) { return f.in_this_game; }));
+    MPE_LOG_INFO("invite list for session {}: {} friend(s), {} in this game", lobby,
+                friends.size(), in_game);
+
+    ShowInviteList(true);
+}
+
+/// Puts the invite list on screen, or takes it off.
+void ShowInviteList(bool visible) {
+    if (!g_lobby_ui_ready) {
+        return;
+    }
+    unreal::LobbyUIContext ui = g_lobby_ui;
+    if (!unreal::BindLobbyMenu(g_live_menu, ui).ok()) {
+        return;
+    }
+    (void)unreal::RunOnGameThread(
+        [&]() {
+            if (visible) {
+                unreal::SetLobbyFriends(ui, g_friend_list, g_friend_page);
+            }
+            unreal::ShowInvitePanel(ui, visible);
+        },
+        5000);
+}
+
+void CloseInviteList() {
+    g_invite_pending = false;
+    ShowInviteList(false);
+}
+
+void PageFriendList(int direction) {
+    const int pages = (static_cast<int>(g_friend_list.size()) + unreal::kFriendRows - 1) /
+                      unreal::kFriendRows;
+    if (pages <= 1) {
+        return;
+    }
+    // Wraps rather than stopping at the ends, so paging never leaves a button that looks
+    // pressable and does nothing.
+    g_friend_page = (g_friend_page + direction + pages) % pages;
+    ShowInviteList(true);
+}
+
+/// Invites the person on one row of the list, and nobody else.
+void InviteFriendAt(int row) {
+    const std::size_t index =
+        static_cast<std::size_t>(g_friend_page) * unreal::kFriendRows +
+        static_cast<std::size_t>(row);
+    if (index >= g_friend_ids.size()) {
+        return;
+    }
+
+    lobby::LobbyId lobby = 0;
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (g_state && g_state->manager &&
+            g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
+            lobby = g_state->manager->Snapshot().lobby_id;
+        }
+    }
+    if (lobby == 0) {
+        MPE_LOG_WARN("cannot invite {}: this session is not hosting yet",
+                    g_friend_list[index].name);
+        return;
+    }
+
+    if (!steam::InviteUserToLobby(lobby, g_friend_ids[index])) {
+        MPE_LOG_WARN("Steam refused the invitation to {}", g_friend_list[index].name);
+        return;
+    }
+
+    // Marked on the row rather than reported only to the log, because from the player's
+    // side an invitation that produces no visible change is indistinguishable from one
+    // that was never sent. This is the whole reason the overlay route was unusable.
+    g_friend_list[index].invited = true;
+    MPE_LOG_INFO("invited {} ({}) to session {}", g_friend_list[index].name,
+                g_friend_ids[index], lobby);
+    ShowInviteList(true);
 }
 
 void InviteToSession(int team) {
-    MPE_LOG_INFO("inviting a player to the {} team of this multiplayer session",
-                team == 0 ? "red" : "blue");
+    MPE_LOG_INFO("opening the invite list for the {} team of this multiplayer session",
+                team == 0 ? "blue" : "red");
     EnsureSessionHosted();
     g_invite_pending = true;
     OpenSessionInvite();
@@ -1389,6 +1585,69 @@ void PublishSessionDetails() {
 ///
 /// Rewritten in place on a timer rather than rebuilt, and only while the lobby is actually
 /// on screen, so it costs nothing when nobody is looking at it.
+/// Puts whoever is actually in the session onto the team cards.
+///
+/// The names are the Steam persona names the lobby backend reads for every member, so a
+/// slot shows the person in it as Steam knows them. Anything else, a numeric id or a
+/// "Player 2", is a placeholder that says nothing about who you are playing with.
+///
+/// Only rewritten when the roster has actually changed, so a lobby nobody is joining costs
+/// one comparison a tick rather than fifty widget writes.
+void RefreshLobbyRoster() {
+    static std::string s_shown;
+
+    if (!g_lobby_ui_ready || !unreal::LobbyIsBuilt() || g_lobby_root == 0) {
+        return;
+    }
+
+    std::vector<std::string> blue;
+    std::vector<std::string> red;
+    std::string              host_name;
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (!g_state || !g_state->manager) {
+            return;
+        }
+        for (const lobby::PlayerSlot& player : g_state->manager->Snapshot().players) {
+            std::vector<std::string>& side = (player.team == 0) ? blue : red;
+            if (side.size() >= 5) {
+                continue;
+            }
+            if (player.is_host) {
+                host_name = player.display_name;
+            }
+            side.push_back(player.display_name);
+        }
+    }
+
+    // Not yet hosting means no roster to show, and blanking the cards on every tick before
+    // the session exists would fight with the screen being built.
+    if (blue.empty() && red.empty()) {
+        return;
+    }
+
+    std::string signature = host_name;
+    for (const std::vector<std::string>& side : {blue, red}) {
+        for (const std::string& name : side) {
+            signature += '\x1F';
+            signature += name;
+        }
+        signature += '\x1E';
+    }
+    if (signature == s_shown) {
+        return;
+    }
+    s_shown = signature;
+
+    unreal::LobbyUIContext ui = g_lobby_ui;
+    if (!unreal::BindLobbyMenu(g_live_menu, ui).ok()) {
+        return;
+    }
+    (void)unreal::RunOnGameThread(
+        [&]() { unreal::SetLobbyRoster(ui, blue, red, host_name); }, 5000);
+    MPE_LOG_INFO("lobby roster: {} on blue, {} on red", blue.size(), red.size());
+}
+
 void RefreshLobbyStatus() {
     static auto s_last = std::chrono::steady_clock::time_point{};
 
@@ -1658,14 +1917,69 @@ void OnStartMatch() {
 
 /// Joins the server selected in the browser.
 void OnJoinMatch() {
-    const std::vector<unreal::ServerEntry> servers = DiscoveredServers();
-    if (servers.empty()) {
-        MPE_LOG_WARN("nothing to join: the browser found no servers");
+    // The listings, not the filtered view, because the row that was chosen was chosen out
+    // of the filtered list and has to be translated back to a Steam lobby id.
+    const std::vector<steam::LobbyListing> listings = steam::BrowseLobbies();
+
+    std::vector<steam::LobbyListing> visible;
+    for (const steam::LobbyListing& listing : listings) {
+        unreal::ServerEntry entry;
+        entry.name     = listing.name;
+        entry.mode     = listing.mode;
+        entry.map      = listing.map;
+        entry.players  = listing.members;
+        entry.capacity = listing.capacity > 0 ? listing.capacity : 10;
+        entry.ping     = listing.ping_milliseconds;
+        if (g_server_filter.Accepts(entry)) {
+            visible.push_back(listing);
+        }
+    }
+
+    if (visible.empty()) {
+        MPE_LOG_WARN("nothing to join: the browser is showing no servers");
         return;
     }
-    const unreal::ServerEntry& target = servers.front();
-    MPE_LOG_INFO("joining {} ({} on {})", target.name, target.mode, target.map);
-    OnLeaveLobby();
+
+    const std::size_t row = (g_selected_server >= 0 &&
+                             static_cast<std::size_t>(g_selected_server) < visible.size())
+                                ? static_cast<std::size_t>(g_selected_server)
+                                : 0;
+    const steam::LobbyListing& target = visible[row];
+
+    // A host pressing JOIN would leave the session everybody else is waiting in and then
+    // try to enter it again as a client, which does not work and loses the lobby.
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (!g_state || !g_state->manager) {
+            MPE_LOG_WARN("cannot join {}: networking is unavailable", target.name);
+            return;
+        }
+        if (g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
+            MPE_LOG_WARN("not joining {}: this game is hosting session {}. Leave first.",
+                        target.name, g_state->manager->Snapshot().lobby_id);
+            return;
+        }
+    }
+
+    MPE_LOG_INFO("joining '{}' ({} on {}), lobby {}, {}/{} players, {} ms", target.name,
+                target.mode, target.map, target.id, target.members, target.capacity,
+                target.ping_milliseconds);
+
+    Result joined = Result::Success();
+    {
+        std::lock_guard lock(g_state_mutex);
+        joined = g_state->manager->JoinSession(target.id);
+    }
+    if (!joined.ok()) {
+        MPE_LOG_ERROR("could not join lobby {}: {}", target.id, joined.message());
+        return;
+    }
+
+    // The lobby screen stays up. Joining is asynchronous, and the phase line in the status
+    // panel is what reports how it is going; closing the screen here would leave the player
+    // watching the main menu with no idea whether anything was happening.
+    g_screen = MultiplayerScreen::Home;
+    SwitchLobbyTab(false);
 }
 
 void MaintainMainMenuButton() {
@@ -2602,8 +2916,21 @@ void SweepForCombatFields(
 }
 
 void Initialize() {
-    log::Initialize(DataDirectory() / "MultiplayerEvolved.log", log::Level::Info);
-    MPE_LOG_INFO("MultiplayerEvolved {} starting", MPE_VERSION_STRING);
+    // Debug by default, and a file next to the mod turns it up further.
+    //
+    // The parts that are hardest to fix are the ones that need two people in two copies of
+    // the game at the same time, and a report of one of those is only as good as what was
+    // written down while it happened. Info alone left out the phase by phase detail of a
+    // join, which is exactly the part nobody can reconstruct afterwards. Dropping to Debug
+    // costs a larger file and nothing else that matters here.
+    //
+    // MultiplayerEvolved/trace.on adds every packet and every reflection lookup, which is
+    // only worth having when a specific question needs it.
+    const log::Level level =
+        DisableFlagPresent(L"trace.on") ? log::Level::Trace : log::Level::Debug;
+    log::Initialize(DataDirectory() / "MultiplayerEvolved.log", level);
+    MPE_LOG_INFO("MultiplayerEvolved {} starting, logging at {}", MPE_VERSION_STRING,
+                log::ToString(level));
     MPE_LOG_INFO("game build: {}", GameBuildString());
     MPE_LOG_INFO("data directory: {}", DataDirectory().string());
 

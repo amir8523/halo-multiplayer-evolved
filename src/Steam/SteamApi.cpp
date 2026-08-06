@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
+#include <algorithm>
 #include <format>
 #include <mutex>
 
@@ -126,6 +127,7 @@ struct Binding {
     PFN_Friends_GetFriendPersonaName friends_GetFriendPersonaName{nullptr};
     int  (*friends_GetFriendCount)(void*, int){nullptr};
     SteamId (*friends_GetFriendByIndex)(void*, int, int){nullptr};
+    bool (*friends_GetFriendGamePlayed)(void*, SteamId, void*){nullptr};
     bool (*mm_InviteUserToLobby)(void*, SteamId, SteamId){nullptr};
     PFN_Friends_ActivateInviteDialog friends_ActivateInviteDialog{nullptr};
     PFN_Friends_SetRichPresence      friends_SetRichPresence{nullptr};
@@ -189,16 +191,67 @@ template <typename Fn>
     return true;
 }
 
-/// Tries each candidate interface version in order, newest first.
-[[nodiscard]] void* AcquireInterface(HSteamUser user, const char* const* versions,
-                                     std::size_t version_count, std::string& out_version) {
+/// One interface version this mod knows, paired with the module export that returns it.
+struct InterfaceVersion {
+    /// The accessor steam_api64.dll exports for this version, e.g. SteamAPI_SteamFriends_v018.
+    const char* accessor;
+    /// The version string the Steam client knows it by, e.g. SteamFriends018.
+    const char* version;
+};
+
+/// Acquires an interface at the version this particular steam_api64.dll speaks.
+///
+/// WHY THE ACCESSOR EXPORT AND NOT JUST THE VERSION STRING
+///
+/// Asking the Steam client for a version by name always succeeds for any version the
+/// client supports, which is every version, because the client keeps compatibility
+/// shims. That answer is about the client and says nothing about the module whose flat
+/// wrappers we then call.
+///
+/// The two are not interchangeable. SteamAPI_ISteamFriends_GetFriendCount inside a given
+/// steam_api64.dll casts the pointer to the interface layout it was compiled against and
+/// calls a fixed vtable slot. Hand it a newer interface and that slot is a different
+/// method, which reads its arguments as something else entirely. This game ships two
+/// copies of the SDK, Steamv157 speaking SteamFriends017 and Steamv163 speaking
+/// SteamFriends018, so guessing newest-first picked the wrong one half the time and the
+/// wrong method was called with the friend flags where a struct pointer was expected.
+///
+/// The accessor export settles it, because it exists only for the version the module was
+/// built for. Finding SteamAPI_SteamFriends_v017 in the module is proof that this module
+/// speaks 017, and calling it returns a pointer that matches its own wrappers.
+[[nodiscard]] void* AcquireInterface(HMODULE module, HSteamUser user,
+                                     const InterfaceVersion* versions, std::size_t version_count,
+                                     std::string& out_version) {
+    using Accessor = void* (*)();
+
+    for (std::size_t i = 0; i < version_count; ++i) {
+        const auto accessor =
+            reinterpret_cast<Accessor>(::GetProcAddress(module, versions[i].accessor));
+        if (accessor == nullptr) {
+            continue;
+        }
+
+        // This module's own version, settled. Nothing below may override it, even on
+        // failure: falling through to another version is what caused the crash.
+        out_version = versions[i].version;
+        if (void* const iface = accessor(); iface != nullptr) {
+            return iface;
+        }
+        if (g_binding.FindOrCreateUserInterface != nullptr) {
+            return g_binding.FindOrCreateUserInterface(user, versions[i].version);
+        }
+        return nullptr;
+    }
+
+    // No accessor export at all: an unusual build, so fall back to asking by name and
+    // record that the pairing is unverified.
     if (g_binding.FindOrCreateUserInterface == nullptr) {
         return nullptr;
     }
     for (std::size_t i = 0; i < version_count; ++i) {
-        void* const iface = g_binding.FindOrCreateUserInterface(user, versions[i]);
-        if (iface != nullptr) {
-            out_version = versions[i];
+        if (void* const iface = g_binding.FindOrCreateUserInterface(user, versions[i].version);
+            iface != nullptr) {
+            out_version = std::format("{} (unverified)", versions[i].version);
             return iface;
         }
     }
@@ -333,42 +386,56 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
 
     const HSteamUser user_handle = g_binding.GetHSteamUser();
 
-    // Interface acquisition. Version candidates newest first.
-    static constexpr const char* kUserVersions[]        = {"SteamUser023", "SteamUser022",
-                                                           "SteamUser021", "SteamUser020"};
-    static constexpr const char* kFriendsVersions[]     = {"SteamFriends018", "SteamFriends017",
-                                                           "SteamFriends015"};
-    static constexpr const char* kMatchmakingVersions[] = {"SteamMatchMaking009",
-                                                           "SteamMatchMaking010"};
-    static constexpr const char* kNetUtilsVersions[]    = {"SteamNetworkingUtils004",
-                                                           "SteamNetworkingUtils003",
-                                                           "SteamNetworkingUtils002"};
-    static constexpr const char* kUtilsVersions[]       = {"SteamUtils010", "SteamUtils009",
-                                                           "SteamUtils008"};
-    static constexpr const char* kNetSocketsVersions[]  = {"SteamNetworkingSockets012",
-                                                           "SteamNetworkingSockets011",
-                                                           "SteamNetworkingSockets009"};
+    // Interface acquisition. Newest first, but only the version this module exports an
+    // accessor for is ever used; see AcquireInterface for why that distinction matters.
+    static constexpr InterfaceVersion kUserVersions[] = {
+        {"SteamAPI_SteamUser_v023", "SteamUser023"},
+        {"SteamAPI_SteamUser_v022", "SteamUser022"},
+        {"SteamAPI_SteamUser_v021", "SteamUser021"},
+        {"SteamAPI_SteamUser_v020", "SteamUser020"},
+    };
+    static constexpr InterfaceVersion kFriendsVersions[] = {
+        {"SteamAPI_SteamFriends_v018", "SteamFriends018"},
+        {"SteamAPI_SteamFriends_v017", "SteamFriends017"},
+        {"SteamAPI_SteamFriends_v015", "SteamFriends015"},
+    };
+    static constexpr InterfaceVersion kMatchmakingVersions[] = {
+        {"SteamAPI_SteamMatchmaking_v010", "SteamMatchMaking010"},
+        {"SteamAPI_SteamMatchmaking_v009", "SteamMatchMaking009"},
+    };
+    static constexpr InterfaceVersion kNetUtilsVersions[] = {
+        {"SteamAPI_SteamNetworkingUtils_SteamAPI_v004", "SteamNetworkingUtils004"},
+        {"SteamAPI_SteamNetworkingUtils_SteamAPI_v003", "SteamNetworkingUtils003"},
+    };
+    static constexpr InterfaceVersion kUtilsVersions[] = {
+        {"SteamAPI_SteamUtils_v010", "SteamUtils010"},
+        {"SteamAPI_SteamUtils_v009", "SteamUtils009"},
+    };
+    static constexpr InterfaceVersion kNetSocketsVersions[] = {
+        {"SteamAPI_SteamNetworkingSockets_SteamAPI_v012", "SteamNetworkingSockets012"},
+        {"SteamAPI_SteamNetworkingSockets_SteamAPI_v011", "SteamNetworkingSockets011"},
+    };
 
-    g_binding.user = AcquireInterface(user_handle, kUserVersions, std::size(kUserVersions),
-                                      g_binding.user_version);
-    g_binding.friends = AcquireInterface(user_handle, kFriendsVersions,
+    g_binding.user = AcquireInterface(module, user_handle, kUserVersions,
+                                      std::size(kUserVersions), g_binding.user_version);
+    g_binding.friends = AcquireInterface(module, user_handle, kFriendsVersions,
                                          std::size(kFriendsVersions), g_binding.friends_version);
-    g_binding.utils = AcquireInterface(user_handle, kUtilsVersions, std::size(kUtilsVersions),
-                                      g_binding.utils_version);
-    g_binding.matchmaking = AcquireInterface(user_handle, kMatchmakingVersions,
+    g_binding.utils = AcquireInterface(module, user_handle, kUtilsVersions,
+                                       std::size(kUtilsVersions), g_binding.utils_version);
+    g_binding.matchmaking = AcquireInterface(module, user_handle, kMatchmakingVersions,
                                              std::size(kMatchmakingVersions),
                                              g_binding.matchmaking_version);
     g_binding.networking_sockets =
-        AcquireInterface(user_handle, kNetSocketsVersions, std::size(kNetSocketsVersions),
+        AcquireInterface(module, user_handle, kNetSocketsVersions, std::size(kNetSocketsVersions),
                          g_binding.networking_sockets_version);
 
     // Networking utils is not user scoped in the SDK's own accessor, so a user
     // handle is tried first and zero second.
-    g_binding.networking_utils = AcquireInterface(user_handle, kNetUtilsVersions,
+    g_binding.networking_utils = AcquireInterface(module, user_handle, kNetUtilsVersions,
                                                   std::size(kNetUtilsVersions),
                                                   g_binding.networking_utils_version);
     if (g_binding.networking_utils == nullptr) {
-        g_binding.networking_utils = AcquireInterface(0, kNetUtilsVersions,
+        g_binding.networking_utils = AcquireInterface(module, 0, kNetUtilsVersions,
                                                       std::size(kNetUtilsVersions),
                                                       g_binding.networking_utils_version);
     }
@@ -393,6 +460,8 @@ bool Initialize(std::string_view game_binaries_directory, bool allow_load_if_abs
                   g_binding.friends_GetFriendCount, missing);
     (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendByIndex",
                   g_binding.friends_GetFriendByIndex, missing);
+    (void)Resolve(module, "SteamAPI_ISteamFriends_GetFriendGamePlayed",
+                  g_binding.friends_GetFriendGamePlayed, missing);
     (void)Resolve(module, "SteamAPI_ISteamMatchmaking_InviteUserToLobby",
                   g_binding.mm_InviteUserToLobby, missing);
     (void)Resolve(module, "SteamAPI_ISteamUtils_IsOverlayEnabled",
@@ -517,11 +586,29 @@ bool HasNetworkingSockets() noexcept {
 }
 
 std::string DescribeBinding() {
+    // The module path, not just its address. This game ships two copies of the Steamworks
+    // redistributable at different SDK versions, and which one is loaded decides which
+    // interface versions are safe to call. Guessing that cost a crash, so it is logged.
+    std::string module_path = "unknown";
+    if (g_binding.module != nullptr) {
+        char path[MAX_PATH]{};
+        if (const DWORD length = ::GetModuleFileNameA(g_binding.module, path, MAX_PATH);
+            length > 0 && length < MAX_PATH) {
+            const std::string_view full{path, length};
+            const std::size_t      slash = full.find_last_of("\\/");
+            // Two trailing components: the version folder is the part that identifies it.
+            const std::size_t parent =
+                (slash == std::string_view::npos) ? slash : full.find_last_of("\\/", slash - 1);
+            module_path = (parent == std::string_view::npos) ? std::string(full)
+                                                             : std::string(full.substr(parent + 1));
+        }
+    }
+
     return std::format(
-        "steam binding: module={} owned={} user='{}' friends='{}' matchmaking='{}' "
+        "steam binding: module={} at {} owned={} user='{}' friends='{}' matchmaking='{}' "
         "utils='{}' net_sockets='{}' net_utils='{}' networking_ready={} "
         "[sizes identity={} msg={} conn_info={} rt_status={} status_cb={}]",
-        static_cast<const void*>(g_binding.module), g_binding.owns_module,
+        static_cast<const void*>(g_binding.module), module_path, g_binding.owns_module,
         g_binding.user_version.empty() ? "none" : g_binding.user_version,
         g_binding.friends_version.empty() ? "none" : g_binding.friends_version,
         g_binding.matchmaking_version.empty() ? "none" : g_binding.matchmaking_version,
@@ -599,8 +686,73 @@ const char* GetFriendPersonaName(SteamId user) {
 }
 
 /// Halo: Campaign Evolved on Steam. Used to tell a friend playing this game from a friend
-/// playing something else, since only the former can act on an invite.
+/// playing something else, since only the former can act on an invite immediately.
 constexpr std::uint64_t kAppId = 2806050;
+
+namespace {
+
+/// FriendGameInfo_t, as ISteamFriends fills it in.
+///
+/// Laid out by hand because the mod does not link the SDK. The only field read is the
+/// game id, whose low 24 bits are the app id for an ordinary Steam application.
+struct FriendGameInfo {
+    std::uint64_t game_id{0};
+    std::uint32_t game_ip{0};
+    std::uint16_t game_port{0};
+    std::uint16_t query_port{0};
+    std::uint64_t lobby{0};
+};
+static_assert(sizeof(FriendGameInfo) == 24, "FriendGameInfo_t is 24 bytes in the Steamworks SDK");
+
+// Steam calls behind a structured exception handler.
+//
+// The interface version is now pinned to what the loaded module speaks, which is what
+// made these calls unsafe before. This is the second line rather than the first: these
+// cross a boundary into a closed binary that is free to change between Steam client
+// updates, and a fault inside it must not be able to close somebody's game mid-match.
+// Each returns a value meaning "unavailable" instead.
+//
+// Kept free of C++ objects because a function using __try may not require unwinding.
+
+int GuardedFriendCount(int flags) noexcept {
+    __try {
+        return g_binding.friends_GetFriendCount(g_binding.friends, flags);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -1;
+    }
+}
+
+SteamId GuardedFriendByIndex(int index, int flags) noexcept {
+    __try {
+        return g_binding.friends_GetFriendByIndex(g_binding.friends, index, flags);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+const char* GuardedFriendName(SteamId id) noexcept {
+    if (g_binding.friends_GetFriendPersonaName == nullptr) {
+        return nullptr;
+    }
+    __try {
+        return g_binding.friends_GetFriendPersonaName(g_binding.friends, id);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+bool GuardedFriendGamePlayed(SteamId id, FriendGameInfo* out) noexcept {
+    if (g_binding.friends_GetFriendGamePlayed == nullptr) {
+        return false;
+    }
+    __try {
+        return g_binding.friends_GetFriendGamePlayed(g_binding.friends, id, out);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+} // namespace
 
 std::vector<GameFriend> FriendsInGame() {
     std::vector<GameFriend> found;
@@ -611,28 +763,48 @@ std::vector<GameFriend> FriendsInGame() {
 
     // k_EFriendFlagImmediate: the ordinary friends list, not clan or group members.
     constexpr int kImmediate = 0x04;
-    const int     count      = g_binding.friends_GetFriendCount(g_binding.friends, kImmediate);
+    const int     count      = GuardedFriendCount(kImmediate);
+    if (count < 0) {
+        MPE_LOG_WARN("reading the friends list faulted inside Steam; the invite list is empty "
+                     "this time rather than the game closing");
+        return found;
+    }
+
+    found.reserve(static_cast<std::size_t>(count));
     for (int index = 0; index < count; ++index) {
-        const SteamId id =
-            g_binding.friends_GetFriendByIndex(g_binding.friends, index, kImmediate);
+        const SteamId id = GuardedFriendByIndex(index, kImmediate);
         if (id == 0) {
             continue;
         }
 
-        // Deliberately not asking what game a friend is in.
-        //
-        // GetFriendGamePlayed writes a struct through a pointer the caller supplies, and
-        // doing that from here faulted inside steamclient while writing at offset four of
-        // it. Whatever the cause, an optional filter is not worth a crash in somebody's
-        // game, so the roster is taken unfiltered and the caller decides who to invite.
-
         GameFriend entry;
         entry.id = id;
-        if (const char* name = GetFriendPersonaName(id); name != nullptr) {
+        if (const char* name = GuardedFriendName(id); name != nullptr) {
             entry.name = name;
+        }
+        if (entry.name.empty()) {
+            // Steam downloads persona names lazily, so a blank one means "not yet"
+            // rather than "nobody". A numeric row is still selectable.
+            entry.name = std::format("Player {}", id);
+        }
+
+        FriendGameInfo playing{};
+        if (GuardedFriendGamePlayed(id, &playing)) {
+            // CGameID packs the app id into the low 24 bits for an ordinary application.
+            entry.in_this_game = (playing.game_id & 0xFFFFFFull) == kAppId;
         }
         found.push_back(std::move(entry));
     }
+
+    // People already in the game first, then alphabetically, so the person most likely to
+    // accept is the one at the top of the list rather than wherever Steam happened to put
+    // them.
+    std::stable_sort(found.begin(), found.end(), [](const GameFriend& a, const GameFriend& b) {
+        if (a.in_this_game != b.in_this_game) {
+            return a.in_this_game;
+        }
+        return a.name < b.name;
+    });
     return found;
 }
 
