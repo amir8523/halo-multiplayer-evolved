@@ -198,6 +198,10 @@ void CaptureServerName();
 void OpenSessionInvite();
 void RefreshLobbyStatus();
 void PrepareLobby();
+void InviteFriendAt(int row);
+void CloseInviteList();
+void PageFriendList(int direction);
+void ShowInviteList(bool visible);
 
 /// Which multiplayer screen is showing.
 ///
@@ -251,6 +255,17 @@ int                  g_selected_server = 0;
 /// Creating a Steam lobby is asynchronous, so the first press always arrives too early.
 /// Remembering it means the player's click is honoured a moment later rather than lost.
 bool g_invite_pending = false;
+
+/// The invite list, as it is currently shown.
+///
+/// Read from Steam when a slot is pressed rather than continuously: the friends list only
+/// changes when somebody signs in or out, and asking on every frame would be a call into
+/// the Steam client sixty times a second for a panel that is usually not even open.
+std::vector<unreal::LobbyFriend> g_friend_list;
+/// Steam ids matching g_friend_list, kept apart from it because the screen has no use for
+/// them and inviting is the only thing that does.
+std::vector<steam::SteamId> g_friend_ids;
+int                         g_friend_page = 0;
 
 /// This build's version, compared against the newest GitHub release to decide whether the
 /// status panel should tell the player to update.
@@ -858,6 +873,10 @@ void TickLoop() {
                 case unreal::LobbyAction::SelectMap:
                     SelectLobbyMap(pressed_index);
                     break;
+
+                case unreal::LobbyAction::FriendsNext:
+                    PageFriendList(1);
+                    break;
             }
         }
 
@@ -1320,22 +1339,111 @@ void OpenSessionInvite() {
     g_invite_pending = false;
     PublishSessionDetails();
 
-    // Invited one person at a time, never in bulk.
+    // Read now, not continuously, and never invited in bulk.
     //
-    // An earlier version invited every friend it could see the moment a slot was pressed.
-    // That is spam, and the call used to filter the list to people actually in this game
-    // crashed inside steamclient. Both are gone: the roster is read, reported, and the
-    // overlay is offered so a specific person can be chosen.
+    // An earlier version invited every friend it could see the moment a slot was pressed,
+    // which is spam whether or not anyone accepts. The list is shown instead and one row
+    // sends one invitation.
     const std::vector<steam::GameFriend> friends = steam::FriendsInGame();
-    MPE_LOG_INFO("{} friend(s) available to invite to session {}", friends.size(), lobby);
 
-    steam::ActivateGameOverlayInviteDialog(lobby);
-    MPE_LOG_INFO("invite requested for session {}", lobby);
+    g_friend_list.clear();
+    g_friend_ids.clear();
+    g_friend_list.reserve(friends.size());
+    g_friend_ids.reserve(friends.size());
+    for (const steam::GameFriend& entry : friends) {
+        unreal::LobbyFriend row;
+        row.name    = entry.name;
+        row.in_game = entry.in_this_game;
+        g_friend_list.push_back(std::move(row));
+        g_friend_ids.push_back(entry.id);
+    }
+    g_friend_page = 0;
+
+    const std::size_t in_game = static_cast<std::size_t>(
+        std::count_if(friends.begin(), friends.end(),
+                      [](const steam::GameFriend& f) { return f.in_this_game; }));
+    MPE_LOG_INFO("invite list for session {}: {} friend(s), {} in this game", lobby,
+                friends.size(), in_game);
+
+    ShowInviteList(true);
+}
+
+/// Puts the invite list on screen, or takes it off.
+void ShowInviteList(bool visible) {
+    if (!g_lobby_ui_ready) {
+        return;
+    }
+    unreal::LobbyUIContext ui = g_lobby_ui;
+    if (!unreal::BindLobbyMenu(g_live_menu, ui).ok()) {
+        return;
+    }
+    (void)unreal::RunOnGameThread(
+        [&]() {
+            if (visible) {
+                unreal::SetLobbyFriends(ui, g_friend_list, g_friend_page);
+            }
+            unreal::ShowInvitePanel(ui, visible);
+        },
+        5000);
+}
+
+void CloseInviteList() {
+    g_invite_pending = false;
+    ShowInviteList(false);
+}
+
+void PageFriendList(int direction) {
+    const int pages = (static_cast<int>(g_friend_list.size()) + unreal::kFriendRows - 1) /
+                      unreal::kFriendRows;
+    if (pages <= 1) {
+        return;
+    }
+    // Wraps rather than stopping at the ends, so paging never leaves a button that looks
+    // pressable and does nothing.
+    g_friend_page = (g_friend_page + direction + pages) % pages;
+    ShowInviteList(true);
+}
+
+/// Invites the person on one row of the list, and nobody else.
+void InviteFriendAt(int row) {
+    const std::size_t index =
+        static_cast<std::size_t>(g_friend_page) * unreal::kFriendRows +
+        static_cast<std::size_t>(row);
+    if (index >= g_friend_ids.size()) {
+        return;
+    }
+
+    lobby::LobbyId lobby = 0;
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (g_state && g_state->manager &&
+            g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
+            lobby = g_state->manager->Snapshot().lobby_id;
+        }
+    }
+    if (lobby == 0) {
+        MPE_LOG_WARN("cannot invite {}: this session is not hosting yet",
+                    g_friend_list[index].name);
+        return;
+    }
+
+    if (!steam::InviteUserToLobby(lobby, g_friend_ids[index])) {
+        MPE_LOG_WARN("Steam refused the invitation to {}", g_friend_list[index].name);
+        return;
+    }
+
+    // Marked on the row rather than reported only to the log, because from the player's
+    // side an invitation that produces no visible change is indistinguishable from one
+    // that was never sent. This is the whole reason the overlay route was unusable.
+    g_friend_list[index].invited = true;
+    MPE_LOG_INFO("invited {} ({}) to session {}", g_friend_list[index].name,
+                g_friend_ids[index], lobby);
+    ShowInviteList(true);
 }
 
 void InviteToSession(int team) {
-    MPE_LOG_INFO("inviting a player to the {} team of this multiplayer session",
-                team == 0 ? "red" : "blue");
+    MPE_LOG_INFO("opening the invite list for the {} team of this multiplayer session",
+                team == 0 ? "blue" : "red");
     EnsureSessionHosted();
     g_invite_pending = true;
     OpenSessionInvite();
