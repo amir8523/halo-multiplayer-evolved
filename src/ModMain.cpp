@@ -2245,6 +2245,28 @@ void MaintainMainMenuButton() {
         if (!g_state || !g_state->objects.has_value()) {
             return;
         }
+
+        // Nothing new registered means nothing new to find.
+        //
+        // Establishing that the menu does not exist yet costs a pass over the whole object
+        // array, and the game can spend minutes compiling shaders before the frontend is
+        // built. That was a hundred and eighty full scans during the slowest part of the
+        // game's startup, each one taking the process address space lock repeatedly, to
+        // learn nothing each time.
+        //
+        // The count is a single read. A menu cannot appear without the count going up, so
+        // an unchanged count means the scan can be skipped. Not skipped forever, because
+        // an object destroyed and another created between two polls leaves the count where
+        // it was, so every fifth poll looks anyway and the worst case is five seconds.
+        static std::uint32_t s_last_count   = 0;
+        static int           s_skipped_scans = 0;
+        const std::uint32_t  count          = g_state->objects->Count();
+        if (count == s_last_count && s_skipped_scans < 4) {
+            ++s_skipped_scans;
+            return;
+        }
+        s_skipped_scans = 0;
+        s_last_count    = count;
         // The menu, and the panels the frontend draws beside it rather than inside it.
         //
         // The fireteam list survives collapsing the menu, so it is not part of it. It is
@@ -2318,7 +2340,11 @@ void MaintainMainMenuButton() {
         if (g_lobby_ui_ready && !g_lobby_ui.has_font) {
             (void)unreal::ResolveLobbyStatics(*g_state->objects, g_lobby_ui);
         }
-        if (const Result resolved = unreal::ResolveMenuButtonPlan(*g_state->objects, plan);
+        // The menu address is handed over rather than searched for again: the pass above
+        // just found it, and repeating that scan here was most of the delay between the
+        // menu being drawn and the entry appearing on it.
+        if (const Result resolved =
+                unreal::ResolveMenuButtonPlan(*g_state->objects, menu, plan);
             !resolved.ok()) {
             // Logged once per menu rather than every tick: a silent return here meant the
             // entry simply never appeared with no indication of why.
@@ -2372,8 +2398,24 @@ void MaintainMainMenuButton() {
             // candidates. Resolved by name here so it holds across runs.
             std::lock_guard lock(g_state_mutex);
             if (g_state && g_state->objects.has_value()) {
-                const std::uintptr_t click =
-                    unreal::FindFunction(*g_state->objects, "HandleButtonClicked");
+                // Found once and kept, with a single read to prove it is still there.
+                //
+                // FindFunction is a pass over the whole object array, and this ran on every
+                // menu, holding the state lock for around a second while the player looked
+                // at a MULTIPLAYER entry that did not answer a click yet. The address of a
+                // UFunction does not change once its class is loaded, so the scan is worth
+                // doing exactly once; ClassOf is a single guarded read and catches the case
+                // where it somehow did.
+                static std::uintptr_t s_click_function = 0;
+                if (s_click_function != 0 &&
+                    g_state->objects->ClassOf(s_click_function) == 0) {
+                    s_click_function = 0;
+                }
+                if (s_click_function == 0) {
+                    s_click_function =
+                        unreal::FindFunction(*g_state->objects, "HandleButtonClicked");
+                }
+                const std::uintptr_t click = s_click_function;
                 if (click != 0) {
                     unreal::SetWidgetClickEvent(click);
                     MPE_LOG_INFO("multiplayer button click bound to HandleButtonClicked "
