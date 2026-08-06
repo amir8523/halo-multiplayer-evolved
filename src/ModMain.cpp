@@ -1620,10 +1620,20 @@ void RefreshLobbyRoster() {
         }
     }
 
-    // Not yet hosting means no roster to show, and blanking the cards on every tick before
-    // the session exists would fight with the screen being built.
+    // An empty roster is a roster, and it has to be drawn.
+    //
+    // Leaving the cards alone when the session has no players sounds harmless and is not:
+    // accepting an invitation leaves the session being hosted before joining the new one,
+    // and skipping the empty moment in between left the old roster on screen. A player who
+    // had just left his own session was still shown in it, marked Owner, while the mod was
+    // connecting him to somebody else's.
+    //
+    // Before any session exists there is still one person to show, which is the player
+    // themselves, so that is what an empty roster falls back to rather than five empty
+    // slots on a screen they have just opened.
     if (blue.empty() && red.empty()) {
-        return;
+        host_name = SteamPlayerName();
+        blue.push_back(host_name);
     }
 
     std::string signature = host_name;
