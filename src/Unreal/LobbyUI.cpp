@@ -904,6 +904,11 @@ void DrawBrowseTab(const Builder& builder, std::uintptr_t canvas, const LobbyVie
                          30.0F, "", kTextDim, 24.0F);
     }
 
+    // A search runs on a timer while this tab is open, but a player who has just been told
+    // to host a game wants to look again now rather than wait out the interval, and a list
+    // that only updates on its own gives them no way to tell waiting from broken.
+    controls.push_back({builder.Button(canvas, 1380.0F, 812.0F, 500.0F, 88.0F, "REFRESH"),
+                        LobbyAction::RefreshServers, 0});
     controls.push_back({builder.Button(canvas, 1380.0F, 916.0F, 500.0F, 104.0F, "JOIN MATCH"),
                         LobbyAction::JoinMatch, 0});
     controls.push_back({builder.Button(canvas, 60.0F, 946.0F, 500.0F, 104.0F, "BACK"),

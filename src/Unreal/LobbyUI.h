@@ -104,6 +104,8 @@ enum class LobbyAction {
     SelectMap,
     /// A row in the invite list. The row index is carried on the control.
     SelectFriend,
+    /// Asks Steam for the lobby list again and redraws the table.
+    RefreshServers,
     /// Dismisses the invite list without inviting anybody.
     CloseInvite,
     /// Pages the invite list, for a friends list longer than one screen.
