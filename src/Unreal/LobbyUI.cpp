@@ -111,6 +111,16 @@ std::uintptr_t g_empty_notice     = 0;
 /// The status panel's three lines, top right of the screen.
 std::uintptr_t g_status_line[3] = {0, 0, 0};
 
+/// The restart notice, top left, shown only once a new build is waiting.
+///
+/// Separate from the status line rather than another entry on it. A player who does not
+/// restart goes on playing the old build against people running the new one, which is the
+/// kind of mismatch that shows up as a session that fails for no visible reason, so it is
+/// worth more room than a third of a small panel.
+std::uintptr_t g_restart_panel   = 0;
+std::uintptr_t g_restart_rule    = 0;
+std::uintptr_t g_restart_line[2] = {0, 0};
+
 /// One team slot's widgets, so a player joining rewrites a card instead of the screen.
 ///
 /// Every part of the card is made whether or not the slot is occupied, and the parts that
@@ -1341,6 +1351,10 @@ void RemoveLobbyUI(const LobbyUIContext& context) {
     g_browse_tab        = 0;
     g_invite_panel      = 0;
     g_invite_open       = false;
+    g_restart_panel     = 0;
+    g_restart_rule      = 0;
+    g_restart_line[0]   = 0;
+    g_restart_line[1]   = 0;
     g_friend_empty      = 0;
     g_friend_page       = 0;
     for (FriendRowWidgets& row : g_friend_row) {
@@ -1722,6 +1736,17 @@ Result BuildLobbyUI(const LobbyUIContext& context, const LobbyView& view,
                          30.0F, "", kText, 19.0F);
     }
 
+    // The restart notice, opposite the status panel. Built collapsed; SetLobbyStatus is
+    // what decides whether there is anything to say.
+    g_restart_panel = builder.Panel(root, 44.0F, 20.0F, 540.0F, 92.0F, kStatusPanel);
+    g_restart_rule  = builder.Panel(root, 44.0F, 20.0F, 3.0F, 92.0F, kWarn);
+    g_restart_line[0] = builder.Text(root, 62.0F, 32.0F, 510.0F, 32.0F, "", kWarn, 21.0F);
+    g_restart_line[1] = builder.Text(root, 62.0F, 66.0F, 510.0F, 30.0F, "", kText, 18.0F);
+    for (const std::uintptr_t widget : {g_restart_panel, g_restart_rule, g_restart_line[0],
+                                        g_restart_line[1]}) {
+        builder.SetVisibilityOf(widget, kCollapsedValue);
+    }
+
     // Tabs, as real buttons so they can be pressed rather than only looked at.
     out_controls.push_back({builder.Button(root, 520.0F, 122.0F, 440.0F, 66.0F, "HOST"),
                             LobbyAction::ShowHost});
@@ -2009,6 +2034,25 @@ void SetLobbyStatus(const LobbyUIContext& context, const LobbyStatus& status) {
 
     for (const std::uintptr_t line : g_status_line) {
         builder.SetVisibilityOf(line, kHitTestInvisible);
+    }
+
+    // The restart notice. Said in two parts on purpose: what happened, then what the
+    // player has to do about it, because the second half is the only part that is an
+    // instruction and it is the half that gets skipped when it is buried in a sentence.
+    if (status.restart_required) {
+        builder.SetTextLive(g_restart_line[0],
+                            status.staged_version.empty()
+                                ? std::string{"UPDATE INSTALLED"}
+                                : std::format("UPDATE {} INSTALLED", status.staged_version));
+        builder.SetTextLive(g_restart_line[1], "QUIT AND RELAUNCH THE GAME TO USE IT");
+    }
+    builder.SetVisibilityOf(g_restart_panel,
+                            status.restart_required ? kHitTestInvisible : kCollapsedValue);
+    builder.SetVisibilityOf(g_restart_rule,
+                            status.restart_required ? kHitTestInvisible : kCollapsedValue);
+    for (const std::uintptr_t line : g_restart_line) {
+        builder.SetVisibilityOf(line,
+                                status.restart_required ? kHitTestInvisible : kCollapsedValue);
     }
 }
 

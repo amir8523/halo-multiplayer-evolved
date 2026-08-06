@@ -1708,8 +1708,10 @@ void RefreshLobbyStatus() {
     }
     const bool behind = !latest.empty() && update::IsNewer(latest, kModVersion);
     status.update_available = behind;
+    status.restart_required = staged;
+    status.staged_version   = staged ? latest : std::string{};
     if (staged) {
-        status.version = std::format("v{}  UPDATE {} READY  RESTART", kModVersion, latest);
+        status.version = std::format("v{}  UPDATE {} INSTALLED", kModVersion, latest);
     } else if (progress >= 0) {
         status.version = std::format("v{}  DOWNLOADING {}%", kModVersion, progress);
     } else if (behind) {
