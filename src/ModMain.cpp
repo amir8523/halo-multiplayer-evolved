@@ -207,6 +207,7 @@ void ShowInviteList(bool visible);
 void RefreshLobbyRoster();
 [[nodiscard]] std::string LoadServerName();
 void                      SaveServerName(const std::string& name);
+[[nodiscard]] lobby::LobbyId HostedLobbyLocked();
 
 /// Which multiplayer screen is showing.
 ///
@@ -1415,13 +1416,10 @@ void OpenSessionInvite() {
             g_invite_pending = false;
             return;
         }
-        if (g_state->manager->Phase() != lobby::LobbyPhase::Hosting) {
-            return; // Not yet; the poll loop will try again.
-        }
-        lobby = g_state->manager->Snapshot().lobby_id;
+        lobby = HostedLobbyLocked();
     }
     if (lobby == 0) {
-        return;
+        return; // Not yet; the poll loop will try again.
     }
 
     g_invite_pending = false;
@@ -1454,6 +1452,33 @@ void OpenSessionInvite() {
                 friends.size(), in_game);
 
     ShowInviteList(true);
+}
+
+/// The lobby this machine is hosting, or zero when it is not hosting one.
+///
+/// Deliberately not "the phase is Hosting". Hosting means the lobby is open and waiting,
+/// which is only the first part of a session's life: pressing start moves it to Countdown,
+/// Loading and then InMatch, and every one of those is still a session this machine owns
+/// and can invite people to. Testing for Hosting alone meant the invite slots went dead the
+/// moment a match began, so a friend who arrived late could not be invited at all.
+///
+/// The caller must hold g_state_mutex.
+[[nodiscard]] lobby::LobbyId HostedLobbyLocked() {
+    if (!g_state || !g_state->manager || !g_state->manager->IsHost()) {
+        return 0;
+    }
+    switch (g_state->manager->Phase()) {
+        case lobby::LobbyPhase::Hosting:
+        case lobby::LobbyPhase::Countdown:
+        case lobby::LobbyPhase::Loading:
+        case lobby::LobbyPhase::InMatch:
+        case lobby::LobbyPhase::PostMatch:
+            return g_state->manager->Snapshot().lobby_id;
+        default:
+            // Idle, Creating and Faulted have no lobby worth pointing anybody at, and the
+            // client side phases are not this machine's session at all.
+            return 0;
+    }
 }
 
 /// Puts the invite list on screen, or takes it off.
@@ -1504,13 +1529,10 @@ void InviteFriendAt(int row) {
     lobby::LobbyId lobby = 0;
     {
         std::lock_guard lock(g_state_mutex);
-        if (g_state && g_state->manager &&
-            g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
-            lobby = g_state->manager->Snapshot().lobby_id;
-        }
+        lobby = HostedLobbyLocked();
     }
     if (lobby == 0) {
-        MPE_LOG_WARN("cannot invite {}: this session is not hosting yet",
+        MPE_LOG_WARN("cannot invite {}: there is no session on this machine to invite to",
                     g_friend_list[index].name);
         return;
     }
@@ -1552,10 +1574,7 @@ void PublishSessionDetails() {
         if (!g_state || !g_state->manager) {
             return;
         }
-        if (g_state->manager->Phase() != lobby::LobbyPhase::Hosting) {
-            return;
-        }
-        lobby = g_state->manager->Snapshot().lobby_id;
+        lobby = HostedLobbyLocked();
     }
     if (lobby == 0) {
         return;
@@ -2028,18 +2047,26 @@ void OnJoinMatch() {
                                 : 0;
     const steam::LobbyListing& target = visible[row];
 
-    // A host pressing JOIN would leave the session everybody else is waiting in and then
-    // try to enter it again as a client, which does not work and loses the lobby.
     {
         std::lock_guard lock(g_state_mutex);
         if (!g_state || !g_state->manager) {
             MPE_LOG_WARN("cannot join {}: networking is unavailable", target.name);
             return;
         }
-        if (g_state->manager->Phase() == lobby::LobbyPhase::Hosting) {
-            MPE_LOG_WARN("not joining {}: this game is hosting session {}. Leave first.",
-                        target.name, g_state->manager->Snapshot().lobby_id);
-            return;
+    }
+
+    // The empty session this player is sitting in is left first, automatically.
+    //
+    // Opening the multiplayer screen hosts a session, so by the time anybody reaches the
+    // browser they are always hosting one. Refusing to join while hosting therefore
+    // refused every join there is, and told the player to leave a session they never
+    // knowingly started. Leaving it here is what the invitation path already does.
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (g_state->manager->Phase() != lobby::LobbyPhase::Idle) {
+            MPE_LOG_INFO("leaving this machine's own session before joining '{}'",
+                        target.name);
+            g_state->manager->LeaveSession();
         }
     }
 
