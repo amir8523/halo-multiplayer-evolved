@@ -1047,6 +1047,7 @@ std::uintptr_t g_browse_tab = 0;
 /// which is what a screen change should do; Hidden would leave it occupying its space.
 constexpr std::uint8_t kVisible   = 0;
 constexpr std::uint8_t kCollapsed = 1;
+constexpr std::uint8_t kHidden    = 2;
 /// Drawn, but does not answer the mouse itself; its children still do.
 ///
 /// The tab canvases cover the whole screen and are added after the HOST and BROWSE buttons,
@@ -1056,7 +1057,12 @@ constexpr std::uint8_t kCollapsed = 1;
 constexpr std::uint8_t kSelfHitTestInvisible = 4;
 
 /// The menu widgets folded away while the lobby is up, so they can be brought back.
-std::vector<std::uintptr_t> g_folded;
+/// A widget folded away, and what its visibility was before it was.
+struct FoldedWidget {
+    std::uintptr_t widget{0};
+    std::uint8_t   previous{kSelfHitTestInvisible};
+};
+std::vector<FoldedWidget> g_folded;
 
 void SetWidgetVisibility(const LobbyUIContext& context, std::uintptr_t widget,
                          std::uint8_t visibility) {
@@ -1068,6 +1074,26 @@ void SetWidgetVisibility(const LobbyUIContext& context, std::uintptr_t widget,
     };
     Parameters parameters{visibility};
     (void)CallFunction(widget, context.set_visibility, &parameters);
+}
+
+/// What a widget's visibility is right now.
+///
+/// Returns SelfHitTestInvisible when it cannot be read, because that is the safe direction
+/// to be wrong in: a container that does not hit test itself still lets everything under it
+/// be clicked, while one restored as Visible swallows every click that lands on it.
+[[nodiscard]] std::uint8_t ReadWidgetVisibility(const LobbyUIContext& context,
+                                                std::uintptr_t       widget) {
+    if (context.get_visibility == 0 || widget == 0) {
+        return kSelfHitTestInvisible;
+    }
+    struct Parameters {
+        std::uint8_t return_value;
+    };
+    Parameters parameters{kSelfHitTestInvisible};
+    if (!CallFunction(widget, context.get_visibility, &parameters).ok()) {
+        return kSelfHitTestInvisible;
+    }
+    return parameters.return_value;
 }
 
 /// Folds the main menu away, leaving the lobby as the only thing on the root.
@@ -1091,15 +1117,36 @@ void FoldMenuAway(const LobbyUIContext& context) {
     if (context.outer == 0) {
         return;
     }
-    SetWidgetVisibility(context, context.outer, kCollapsed);
-    g_folded.push_back(context.outer);
 
-    for (const std::uintptr_t widget : context.also_fold) {
+    // Read before collapsing, in that order, or every widget records Collapsed as the
+    // state to go back to and the menu never comes back at all.
+    const auto fold = [&](std::uintptr_t widget) {
+        std::uint8_t previous = ReadWidgetVisibility(context, widget);
+
+        // A hidden state is never restored, whatever was read.
+        //
+        // Reading Collapsed or Hidden here means either this ran twice or the read
+        // failed in a way that looked like a value, and honouring it would leave the
+        // player at an empty screen with no menu and no way back. The visible states are
+        // the only sane answers, so anything else becomes the safest of them.
+        if (previous == kCollapsed || previous == kHidden) {
+            MPE_LOG_WARN("widget 0x{:X} was already hidden ({}) when the menu was folded; it "
+                        "will be restored as visible rather than left hidden",
+                        widget, previous);
+            previous = kSelfHitTestInvisible;
+        }
+
+        g_folded.push_back(FoldedWidget{widget, previous});
         SetWidgetVisibility(context, widget, kCollapsed);
-        g_folded.push_back(widget);
+    };
+
+    fold(context.outer);
+    for (const std::uintptr_t widget : context.also_fold) {
+        fold(widget);
     }
-    MPE_LOG_INFO("main menu 0x{:X} collapsed whole, with {} widget(s) beside it",
-                context.outer, context.also_fold.size());
+    MPE_LOG_INFO("main menu 0x{:X} collapsed whole (visibility was {}), with {} widget(s) "
+                "beside it",
+                context.outer, g_folded.front().previous, context.also_fold.size());
 }
 
 /// Points input at the lobby instead of the menu underneath it.
@@ -1161,11 +1208,22 @@ void FocusLobby(const LobbyUIContext& context, std::uintptr_t widget) {
 }
 
 void UnfoldMenu(const LobbyUIContext& context) {
-    for (const std::uintptr_t widget : g_folded) {
-        SetWidgetVisibility(context, widget, kVisible);
+    // Put back exactly what was there, not Visible.
+    //
+    // Restoring everything as Visible is what left the main menu on screen and completely
+    // dead, with no button on it answering a click and no way out but closing the game.
+    //
+    // ESlateVisibility::Visible means the widget hit tests itself, so a container restored
+    // that way swallows every click that lands on it before any of its children see one.
+    // Menu containers are authored SelfHitTestInvisible precisely so their buttons get the
+    // input, and folding the menu away silently overwrote that. The widget was drawn, it
+    // looked right, and it ate everything.
+    for (const FoldedWidget& folded : g_folded) {
+        SetWidgetVisibility(context, folded.widget, folded.previous);
     }
     if (!g_folded.empty()) {
-        MPE_LOG_INFO("restored {} main menu widget(s)", g_folded.size());
+        MPE_LOG_INFO("restored {} main menu widget(s), the menu root to visibility {}",
+                    g_folded.size(), g_folded.front().previous);
     }
     g_folded.clear();
 }
@@ -1541,6 +1599,7 @@ Result ResolveLobbyStatics(const ObjectArray& objects, LobbyUIContext& out_conte
     };
 
     context.set_text              = find("SetText", "TextBlock");
+    context.get_visibility        = find("GetVisibility", "Widget");
     context.set_color_and_opacity = find("SetColorAndOpacity", "TextBlock");
     context.set_position          = find("SetPosition", "CanvasPanelSlot");
     context.set_size              = find("SetSize", "CanvasPanelSlot");

@@ -178,6 +178,9 @@ struct LobbyUIContext {
     /// Used to fold the main menu away while the lobby is up, and to bring it back. This
     /// is what makes the lobby a screen rather than a panel sitting on top of the menu.
     std::uintptr_t set_visibility{0};
+    /// Reads a widget's visibility so folding the menu away can put it back exactly as it
+    /// was. Restoring it to Visible instead is what left the main menu drawn and dead.
+    std::uintptr_t get_visibility{0};
     /// Walking the menu root's children, so the widgets to fold away are the ones actually
     /// parented there rather than a list of offsets guessed from a header.
     std::uintptr_t get_children_count{0};
