@@ -315,6 +315,47 @@ Expected<ObjectArray> ObjectArray::Locate(const NamePool& names) {
     return result;
 }
 
+void ObjectArray::ForEachRaw(const std::function<bool(const RawObject&)>& visitor) const {
+    const std::uint32_t count = Count();
+
+    // Paced like the resolving walk, because the reads still take the address space lock
+    // and the game's loader still needs it.
+    pacing::WorkPacer pacer;
+
+    for (std::uint32_t index = 0; index < count; ++index) {
+        pacer.Tick();
+
+        const std::uintptr_t chunk = ChunkFor(index);
+        if (chunk == 0) {
+            continue;
+        }
+        const std::uintptr_t item =
+            chunk + static_cast<std::uintptr_t>(index % kElementsPerChunk) * kObjectItemSize;
+        const auto object = memory::ReadPointer(item);
+        if (!object.has_value() || *object == 0) {
+            continue; // Sparse array: empty and freed slots are normal.
+        }
+
+        RawObject raw;
+        raw.index   = index;
+        raw.address = *object;
+        if (!ReadRaw(*object, raw.class_address, raw.name_index)) {
+            continue;
+        }
+
+        // The class is itself a UObject, so its name index is one more read and no
+        // allocation at all.
+        std::uintptr_t class_of_class = 0;
+        if (!ReadRaw(raw.class_address, class_of_class, raw.class_name_index)) {
+            continue;
+        }
+
+        if (!visitor(raw)) {
+            return;
+        }
+    }
+}
+
 void ObjectArray::ForEach(const std::function<bool(const ObjectInfo&)>& visitor,
                           std::uint32_t max_to_visit) const {
     const std::uint32_t count = Count();

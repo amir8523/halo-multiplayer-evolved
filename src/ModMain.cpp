@@ -2299,7 +2299,7 @@ void MaintainMainMenuButton() {
         s_skipped_scans = 0;
         s_last_count    = count;
         // The menu, and the panels the frontend draws beside it rather than inside it,
-        // in one pass.
+        // in one pass that resolves no names.
         //
         // Both are collected here on purpose. Deferring the panels to a later poll to let
         // this pass stop early looked like a clean saving and was not: the function returns
@@ -2307,7 +2307,24 @@ void MaintainMainMenuButton() {
         // opened with an empty fold list. The fireteam panel then stayed on screen over the
         // lobby, which is the exact bug this list exists to prevent.
         //
+        // What made the pass expensive was never the walking, it was that every object had
+        // two FNames turned into strings so a handful of class names could be compared.
+        // Fifty thousand objects is a hundred thousand pool lookups and allocations, and
+        // it was most of the delay between the menu being drawn and the entry appearing on
+        // it. An FName index compares as an integer, so the names are resolved once, kept,
+        // and compared as numbers.
+        //
         // The fireteam list survives collapsing the menu, so it is not part of it.
+        // Filtered on the resolved class name, not on a name pool lookup.
+        //
+        // An earlier attempt resolved each class name to an FName index once and compared
+        // integers, which is far cheaper per object and completely wrong here: FindIndexOf
+        // searches a bounded number of blocks, this pool has a hundred and forty one of
+        // them, and the frontend's classes do not live in the first thirty two. It found
+        // nothing, returned early on every poll, and the entry never appeared at all.
+        //
+        // A cheaper filter has to key on something already known to be correct rather than
+        // on a search that can silently come up empty.
         std::vector<std::uintptr_t> beside;
         g_state->objects->ForEach([&](const unreal::ObjectInfo& object) {
             if (object.name.rfind("Default__", 0) == 0) {

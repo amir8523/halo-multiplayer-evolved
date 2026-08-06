@@ -124,6 +124,28 @@ public:
     void ForEach(const std::function<bool(const ObjectInfo&)>& visitor,
                  std::uint32_t max_to_visit = 0) const;
 
+    /// One object, described without resolving a single name.
+    struct RawObject {
+        std::uint32_t  index{0};
+        std::uintptr_t address{0};
+        std::uintptr_t class_address{0};
+        /// FName index of the object's own name.
+        std::uint32_t name_index{0};
+        /// FName index of its class's name, which is what class filters compare.
+        std::uint32_t class_name_index{0};
+    };
+
+    /// Visits every live object without turning any FName into a string.
+    ///
+    /// ForEach resolves two names per object and allocates two strings to do it, so a pass
+    /// over the array is a hundred thousand pool lookups and allocations. That is almost
+    /// all of what a pass costs, and callers that only want to know "is this a
+    /// WBP_MainMenu_C" never needed either of them: an FName index compares as an integer.
+    ///
+    /// Resolve a name once with NamePool::FindIndexOf, keep the index, and compare against
+    /// class_name_index here. Resolve strings only for the handful of objects that match.
+    void ForEachRaw(const std::function<bool(const RawObject&)>& visitor) const;
+
     /// Every object whose class name matches exactly.
     ///
     /// This is the workhorse for finding a live instance of a known type, for example
