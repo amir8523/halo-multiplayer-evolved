@@ -202,6 +202,7 @@ void InviteFriendAt(int row);
 void CloseInviteList();
 void PageFriendList(int direction);
 void ShowInviteList(bool visible);
+void RefreshLobbyRoster();
 
 /// Which multiplayer screen is showing.
 ///
@@ -732,6 +733,7 @@ void TickLoop() {
         }
 
         RefreshLobbyStatus();
+        RefreshLobbyRoster();
 
         // The browser refreshes itself while it is open.
         //
@@ -1497,6 +1499,69 @@ void PublishSessionDetails() {
 ///
 /// Rewritten in place on a timer rather than rebuilt, and only while the lobby is actually
 /// on screen, so it costs nothing when nobody is looking at it.
+/// Puts whoever is actually in the session onto the team cards.
+///
+/// The names are the Steam persona names the lobby backend reads for every member, so a
+/// slot shows the person in it as Steam knows them. Anything else, a numeric id or a
+/// "Player 2", is a placeholder that says nothing about who you are playing with.
+///
+/// Only rewritten when the roster has actually changed, so a lobby nobody is joining costs
+/// one comparison a tick rather than fifty widget writes.
+void RefreshLobbyRoster() {
+    static std::string s_shown;
+
+    if (!g_lobby_ui_ready || !unreal::LobbyIsBuilt() || g_lobby_root == 0) {
+        return;
+    }
+
+    std::vector<std::string> blue;
+    std::vector<std::string> red;
+    std::string              host_name;
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (!g_state || !g_state->manager) {
+            return;
+        }
+        for (const lobby::PlayerSlot& player : g_state->manager->Snapshot().players) {
+            std::vector<std::string>& side = (player.team == 0) ? blue : red;
+            if (side.size() >= 5) {
+                continue;
+            }
+            if (player.is_host) {
+                host_name = player.display_name;
+            }
+            side.push_back(player.display_name);
+        }
+    }
+
+    // Not yet hosting means no roster to show, and blanking the cards on every tick before
+    // the session exists would fight with the screen being built.
+    if (blue.empty() && red.empty()) {
+        return;
+    }
+
+    std::string signature = host_name;
+    for (const std::vector<std::string>& side : {blue, red}) {
+        for (const std::string& name : side) {
+            signature += '\x1F';
+            signature += name;
+        }
+        signature += '\x1E';
+    }
+    if (signature == s_shown) {
+        return;
+    }
+    s_shown = signature;
+
+    unreal::LobbyUIContext ui = g_lobby_ui;
+    if (!unreal::BindLobbyMenu(g_live_menu, ui).ok()) {
+        return;
+    }
+    (void)unreal::RunOnGameThread(
+        [&]() { unreal::SetLobbyRoster(ui, blue, red, host_name); }, 5000);
+    MPE_LOG_INFO("lobby roster: {} on blue, {} on red", blue.size(), red.size());
+}
+
 void RefreshLobbyStatus() {
     static auto s_last = std::chrono::steady_clock::time_point{};
 
