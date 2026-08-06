@@ -2047,36 +2047,35 @@ void OnJoinMatch() {
                                 : 0;
     const steam::LobbyListing& target = visible[row];
 
+    MPE_LOG_INFO("joining '{}' ({} on {}), lobby {}, {}/{} players, {} ms", target.name,
+                target.mode, target.map, target.id, target.members, target.capacity,
+                target.ping_milliseconds);
+
+    // Leaving and joining under one lock, not three.
+    //
+    // Taking it separately for the check, the leave and the join leaves gaps another
+    // thread can change the session in, and the worst of those lands between leaving this
+    // machine's own session and entering somebody else's, which is the moment there is no
+    // session at all.
+    Result joined = Result::Success();
     {
         std::lock_guard lock(g_state_mutex);
         if (!g_state || !g_state->manager) {
             MPE_LOG_WARN("cannot join {}: networking is unavailable", target.name);
             return;
         }
-    }
 
-    // The empty session this player is sitting in is left first, automatically.
-    //
-    // Opening the multiplayer screen hosts a session, so by the time anybody reaches the
-    // browser they are always hosting one. Refusing to join while hosting therefore
-    // refused every join there is, and told the player to leave a session they never
-    // knowingly started. Leaving it here is what the invitation path already does.
-    {
-        std::lock_guard lock(g_state_mutex);
+        // The session this player is sitting in is left first, automatically.
+        //
+        // Opening the multiplayer screen hosts a session, so by the time anybody reaches
+        // the browser they are always hosting one. Refusing to join while hosting
+        // therefore refused every join there is, and told the player to leave a session
+        // they never knowingly started. Leaving it here is what accepting an invitation
+        // already does.
         if (g_state->manager->Phase() != lobby::LobbyPhase::Idle) {
-            MPE_LOG_INFO("leaving this machine's own session before joining '{}'",
-                        target.name);
+            MPE_LOG_INFO("leaving this machine's own session first");
             g_state->manager->LeaveSession();
         }
-    }
-
-    MPE_LOG_INFO("joining '{}' ({} on {}), lobby {}, {}/{} players, {} ms", target.name,
-                target.mode, target.map, target.id, target.members, target.capacity,
-                target.ping_milliseconds);
-
-    Result joined = Result::Success();
-    {
-        std::lock_guard lock(g_state_mutex);
         joined = g_state->manager->JoinSession(target.id);
     }
     if (!joined.ok()) {
