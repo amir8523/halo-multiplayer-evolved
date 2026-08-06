@@ -14,6 +14,8 @@
 
 #include <cstring>
 #include <format>
+#include <mutex>
+#include <unordered_map>
 
 namespace mpe::unreal {
 namespace {
@@ -140,6 +142,7 @@ Expected<NamePool> NamePool::Locate() {
         }
 
         NamePool pool;
+        pool.cache_          = std::make_shared<NamePool::Cache>();
         pool.blocks_address_ = address;
 
         // Final confirmation: index 0 must resolve to "None" through the real
@@ -169,6 +172,7 @@ Expected<NamePool> NamePool::FromBlocks(std::uintptr_t blocks_address) {
     }
 
     NamePool pool;
+    pool.cache_          = std::make_shared<NamePool::Cache>();
     pool.blocks_address_ = blocks_address;
 
     // Exactly the confirmation Locate uses: index zero has to resolve to "None" through the
@@ -213,7 +217,20 @@ std::size_t NamePool::PopulatedBlockCount() const {
     return count;
 }
 
+/// Resolved names, keyed by FName index. See the declaration for why this is safe.
+struct NamePool::Cache {
+    std::mutex                                     mutex;
+    std::unordered_map<std::uint32_t, std::string> names;
+};
+
 Expected<std::string> NamePool::Resolve(std::uint32_t index) const {
+    if (cache_ != nullptr) {
+        std::lock_guard lock(cache_->mutex);
+        if (const auto found = cache_->names.find(index); found != cache_->names.end()) {
+            return found->second;
+        }
+    }
+
     const std::uint32_t block  = index >> kNameBlockOffsetBits;
     const std::uint32_t offset = index & kNameBlockOffsetMask;
 
@@ -248,19 +265,26 @@ Expected<std::string> NamePool::Resolve(std::uint32_t index) const {
                      std::format("FName index {} text is not readable", index)};
     }
 
+    std::string text;
     if (!wide) {
-        return std::string(reinterpret_cast<const char*>(entry + 2), length);
+        text.assign(reinterpret_cast<const char*>(entry + 2), length);
+    } else {
+        // Wide names are rare but legal. Narrowed for logging; anything outside ASCII
+        // becomes '?' rather than producing invalid UTF-8.
+        const auto* source = reinterpret_cast<const wchar_t*>(entry + 2);
+        text.reserve(length);
+        for (std::uint16_t i = 0; i < length; ++i) {
+            text.push_back(source[i] < 128 ? static_cast<char>(source[i]) : '?');
+        }
     }
 
-    // Wide names are rare but legal. Narrowed for logging; anything outside ASCII
-    // becomes '?' rather than producing invalid UTF-8.
-    const auto* source = reinterpret_cast<const wchar_t*>(entry + 2);
-    std::string narrow;
-    narrow.reserve(length);
-    for (std::uint16_t i = 0; i < length; ++i) {
-        narrow.push_back(source[i] < 128 ? static_cast<char>(source[i]) : '?');
+    // Only a name that read correctly is kept. A failure above is not cached, so a block
+    // that was not mapped yet is retried rather than remembered as missing.
+    if (cache_ != nullptr) {
+        std::lock_guard lock(cache_->mutex);
+        cache_->names.emplace(index, text);
     }
-    return narrow;
+    return text;
 }
 
 std::vector<NameEntry> NamePool::DumpBlock(std::uint32_t block, std::size_t max_entries) const {
