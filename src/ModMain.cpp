@@ -1677,6 +1677,16 @@ void RefreshLobbyStatus() {
         std::lock_guard lock(g_state_mutex);
         if (g_state && g_state->manager) {
             const lobby::LobbySnapshot& snapshot = g_state->manager->Snapshot();
+
+            // Every phase named, with nothing falling through to a word that covers
+            // several of them.
+            //
+            // There are twelve phases and this used to name four, so joining somebody
+            // else's session read as BUSY from the moment the Steam lobby was entered
+            // until the match started. A player watching that cannot tell a handshake in
+            // progress from one that has stopped, and neither could anybody reading their
+            // report of it: the first two player test came back as "it says busy", which
+            // is the screen's fault rather than the session's.
             switch (g_state->manager->Phase()) {
                 case lobby::LobbyPhase::Idle:
                     status.session = "OFFLINE";
@@ -1690,13 +1700,54 @@ void RefreshLobbyStatus() {
                     status.invitable = status.online;
                     break;
                 case lobby::LobbyPhase::Joining:
-                    status.session = "JOINING";
+                    status.session = "JOINING LOBBY";
                     break;
-                default:
+                case lobby::LobbyPhase::Connecting:
+                    status.session = "CONNECTING TO HOST";
+                    break;
+                case lobby::LobbyPhase::Handshaking:
+                    status.session = "HANDSHAKING";
+                    break;
+                case lobby::LobbyPhase::InLobby:
+                    status.session = std::format("JOINED  {}/{}", snapshot.players.size(),
+                                                 LobbyState::kMaxPlayers);
+                    break;
+                case lobby::LobbyPhase::Countdown:
+                    status.session = "STARTING MATCH";
+                    break;
+                case lobby::LobbyPhase::Loading:
+                    status.session = "LOADING";
+                    break;
+                case lobby::LobbyPhase::InMatch:
+                    status.session = "IN MATCH";
+                    break;
+                case lobby::LobbyPhase::PostMatch:
+                    status.session = "MATCH OVER";
+                    break;
+                case lobby::LobbyPhase::Faulted:
                     status.session = snapshot.last_error.empty()
-                                         ? "BUSY"
+                                         ? "FAULTED"
                                          : std::format("ERROR: {}", snapshot.last_error);
                     break;
+            }
+
+            // A phase that is going nowhere says so.
+            //
+            // Connecting and handshaking are supposed to be brief. Left as they are, one
+            // that never completes looks exactly like one that is about to, and the player
+            // waits indefinitely on a screen that reads as normal.
+            static lobby::LobbyPhase                     s_phase = lobby::LobbyPhase::Idle;
+            static std::chrono::steady_clock::time_point s_since{};
+            const lobby::LobbyPhase current = g_state->manager->Phase();
+            if (current != s_phase) {
+                s_phase = current;
+                s_since = now;
+            }
+            const bool transient = current == lobby::LobbyPhase::Joining ||
+                                   current == lobby::LobbyPhase::Connecting ||
+                                   current == lobby::LobbyPhase::Handshaking;
+            if (transient && now - s_since > std::chrono::seconds(20)) {
+                status.session += "  STALLED";
             }
         } else {
             status.session = "UNAVAILABLE";
