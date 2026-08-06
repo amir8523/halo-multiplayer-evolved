@@ -10,6 +10,7 @@ over Steam's relay. No engine source, no SDK, no package manager.
 build.bat                       # release build into build\
 build.bat debug                 # symbols, no optimisation
 build.bat install               # build, then copy into the game folder
+build.bat package               # build, then make the release archive in build\
 tools\protocol_check\build.bat  # wire protocol checks, ~1 second
 ```
 
@@ -36,9 +37,16 @@ Order matters. `main` advertising a version whose tag does not exist is a broken
 for every player.
 
 1. Build, install, verify the installed bytes.
-2. `gh release create vX.Y.Z --target main` with the three assets.
-3. Download the published asset back and hash-match it against the installed file.
-4. Only then merge the README and `kModVersion` bump.
+2. `build.bat package` for the archive. Never assemble it by hand: doing that shipped four
+   releases whose zip held the two DLLs and nothing else, because the `MultiplayerEvolved`
+   folder was created empty and the archiver dropped it. The install instructions told
+   players to copy three things when only two existed, and a fresh install got no symbol
+   descriptor. The package step stages `data/`, checks the descriptor is in it, and lists
+   the archive contents.
+3. `gh release create vX.Y.Z --target main` with the three assets.
+4. Download the published asset back and hash-match it against the installed file. Check
+   the zip's contents too, not just its size.
+5. Only then merge the README and `kModVersion` bump.
 
 Bump `kProtocolVersion` in `src/Net/PacketProtocol.h` for any change to an existing message
 layout **or** to how a message is handled. The browse marker carries that version, so

@@ -10,13 +10,16 @@ rem
 rem   build.bat            release build
 rem   build.bat debug      debug build with symbols and no optimization
 rem   build.bat install    release build, then copy into the game
+rem   build.bat package    release build, then make the release zip in build\
 rem
 rem Output lands in build\.
 
 set CONFIG=release
 set DO_INSTALL=0
+set DO_PACKAGE=0
 if /I "%~1"=="debug"   set CONFIG=debug
 if /I "%~1"=="install" set DO_INSTALL=1
+if /I "%~1"=="package" set DO_PACKAGE=1
 
 set ROOT=%~dp0
 set OUT=%ROOT%build
@@ -127,7 +130,7 @@ rem It was not: inside a parenthesised if, that abandoned the rest of the instal
 rem still left the script exiting zero, so a copy that failed reported success to
 rem whatever ran the build. That shipped a release built from one version while the
 rem game folder still held the previous one.
-if not "%DO_INSTALL%"=="1" goto :finished
+if not "%DO_INSTALL%"=="1" goto :package
 
 if not exist "%INSTALL_DIR%\HaloCampaignEvolved.exe" (
     echo.
@@ -187,6 +190,63 @@ echo Installed into %INSTALL_DIR%
 for %%F in ("%INSTALL_DIR%\MultiplayerEvolved.dll" "%INSTALL_DIR%\version.dll") do (
     echo   %%~nxF  %%~zF bytes  %%~tF
 )
+
+rem --- Package -----------------------------------------------------------------
+rem
+rem The release archive is built here rather than by hand.
+rem
+rem Hand assembling it shipped several releases whose zip held the two DLLs and
+rem nothing else. The MultiplayerEvolved folder was created empty and then dropped
+rem by the archiver, so the data folder never went in, and the install instructions
+rem told players to copy three things when only two existed. Anyone installing
+rem fresh got no symbol descriptor.
+rem
+rem Everything the install needs comes from one place now, and the contents are
+rem listed afterwards so an empty or missing folder is visible rather than assumed.
+:package
+if not "%DO_PACKAGE%"=="1" goto :finished
+
+set STAGE=%OUT%\package
+if exist "%STAGE%" rmdir /S /Q "%STAGE%"
+mkdir "%STAGE%\MultiplayerEvolved"
+
+copy /Y "%OUT%\MultiplayerEvolved.dll" "%STAGE%\" >nul
+if errorlevel 1 (
+    echo PACKAGE FAILED: MultiplayerEvolved.dll is missing from %OUT%.
+    exit /b 1
+)
+copy /Y "%OUT%\version.dll" "%STAGE%\" >nul
+if errorlevel 1 (
+    echo PACKAGE FAILED: version.dll is missing from %OUT%.
+    exit /b 1
+)
+xcopy /Y /E /I "%ROOT%data" "%STAGE%\MultiplayerEvolved" >nul
+if errorlevel 1 (
+    echo PACKAGE FAILED: the data folder could not be staged.
+    exit /b 1
+)
+
+rem The symbol descriptor is the one file whose absence is not obvious until the
+rem engine binding quietly falls back to its built in defaults, so it is checked
+rem by name rather than trusted to have come along with the rest.
+dir /b /s "%STAGE%\MultiplayerEvolved\symbols\*.json" >nul 2>&1
+if errorlevel 1 (
+    echo PACKAGE FAILED: no symbol descriptor was staged; the archive would install
+    echo                 a mod that falls back to built in defaults.
+    exit /b 1
+)
+
+set ARCHIVE=%OUT%\MultiplayerEvolved.zip
+if exist "%ARCHIVE%" del /Q "%ARCHIVE%"
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%\*' -DestinationPath '%ARCHIVE%' -Force"
+if errorlevel 1 (
+    echo PACKAGE FAILED: the archive could not be written.
+    exit /b 1
+)
+
+echo.
+echo === Packaged %ARCHIVE% ===
+powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[System.IO.Compression.ZipFile]::OpenRead('%ARCHIVE%'); foreach ($e in $z.Entries) { '  {0}  {1} bytes' -f $e.FullName, $e.Length }; $z.Dispose()"
 
 :finished
 endlocal
