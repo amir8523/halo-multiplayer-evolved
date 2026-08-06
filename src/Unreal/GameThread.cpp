@@ -976,18 +976,42 @@ void StopWatchingWidgetEvents() {
     g_original_vtable = 0;
 }
 
-Result ResolveMenuButtonPlan(const ObjectArray& objects, MenuButtonPlan& out_plan) {
+Result ResolveMenuButtonPlan(const ObjectArray& objects, std::uintptr_t known_menu,
+                             MenuButtonPlan& out_plan) {
     constexpr std::uintptr_t kContainerOffset = 0x560;
     static constexpr std::uintptr_t kMenuButtonOffsets[] = {
         0x580, 0x508, 0x578, 0x568, 0x518, 0x510, 0x570,
     };
 
-    MenuButtonPlan plan;
+    // Everything except the menu itself is resolved once and kept.
+    //
+    // The button class, the two libraries, the four functions and the player controller do
+    // not change for the life of the process, and this scanned the whole object array for
+    // them every time a menu appeared. That is the worst possible moment to spend a scan:
+    // the menu appearing is exactly when the entry needs to be on it, and the player is
+    // looking at the screen waiting. Measured on this build it was most of the delay
+    // between the menu being drawn and MULTIPLAYER showing up on it.
+    //
+    // The caller already knows the menu address, because it found it in the pass that
+    // decided there was work to do, so with the rest cached a new menu costs no scan at
+    // all: a few guarded reads and the game thread call.
+    static std::mutex     s_plan_mutex;
+    static MenuButtonPlan s_static_plan;
+    static bool           s_static_resolved = false;
 
-    // One pass over the object array instead of one pass per lookup. The array is around
-    // fifty thousand entries and every read is guarded, so the difference between one scan
-    // and eight is the difference between instant and a visible stall.
-    objects.ForEach([&](const ObjectInfo& object) {
+    std::lock_guard plan_lock(s_plan_mutex);
+
+    MenuButtonPlan plan;
+    if (s_static_resolved) {
+        plan      = s_static_plan;
+        plan.menu = known_menu;
+    }
+
+    if (!s_static_resolved || plan.menu == 0) {
+        // One pass over the object array instead of one pass per lookup. The array is around
+        // fifty thousand entries and every read is guarded, so the difference between one scan
+        // and eight is the difference between instant and a visible stall.
+        objects.ForEach([&](const ObjectInfo& object) {
         const bool is_default = object.name.rfind("Default__", 0) == 0;
 
         if (!is_default && plan.menu == 0 && object.class_name == "WBP_MainMenu_C") {
@@ -1018,7 +1042,8 @@ Result ResolveMenuButtonPlan(const ObjectArray& objects, MenuButtonPlan& out_pla
             plan.controller = object.address;
         }
         return true;
-    });
+        });
+    }
 
     if (plan.menu == 0) {
         return Result::Fail(ErrorCode::InvalidState, "no live main menu");
@@ -1027,6 +1052,16 @@ Result ResolveMenuButtonPlan(const ObjectArray& objects, MenuButtonPlan& out_pla
         plan.add_child_function == 0 || plan.controller == 0) {
         return Result::Fail(ErrorCode::InvalidState,
                             "the menu button pieces could not all be resolved");
+    }
+
+    // Kept without the per menu fields, which are filled in from the caller's address and
+    // from reads against whichever menu is live at the time.
+    if (!s_static_resolved) {
+        s_static_plan                = plan;
+        s_static_plan.menu           = 0;
+        s_static_plan.container      = 0;
+        s_static_plan.existing_count = 0;
+        s_static_resolved            = true;
     }
 
     if (!memory::GuardedRead(plan.menu + kContainerOffset, &plan.container,

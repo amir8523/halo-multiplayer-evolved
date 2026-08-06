@@ -241,7 +241,15 @@ struct MenuRow {
                                    std::vector<std::uintptr_t>& out_buttons);
 
 /// Resolves the plan. Safe to call from any thread; does no engine calls.
-[[nodiscard]] Result ResolveMenuButtonPlan(const ObjectArray& objects, MenuButtonPlan& out_plan);
+/// Works out everything needed to add one entry to the main menu.
+///
+/// known_menu is the live WBP_MainMenu_C, which the caller has usually just found. Pass it
+/// and the object array is not scanned at all: the parts that never change are resolved on
+/// the first call and kept, so a menu appearing costs a few guarded reads rather than a
+/// pass over fifty thousand objects at the exact moment the player is waiting to see the
+/// entry. Pass zero to have the menu located as well.
+[[nodiscard]] Result ResolveMenuButtonPlan(const ObjectArray& objects,
+                                           std::uintptr_t known_menu, MenuButtonPlan& out_plan);
 
 /// Applies a resolved plan. Must run on the game thread.
 [[nodiscard]] Result ApplyMenuButtonPlan(const MenuButtonPlan& plan, std::string_view label,
