@@ -251,6 +251,17 @@ struct MenuRow {
 [[nodiscard]] Result ResolveMenuButtonPlan(const ObjectArray& objects,
                                            std::uintptr_t known_menu, MenuButtonPlan& out_plan);
 
+/// Resolves the parts of the plan that do not depend on a menu, ahead of there being one.
+///
+/// Everything except the live menu is fixed for the process: the button class, the two
+/// libraries, the four functions and the player controller. Finding them costs a pass over
+/// the object array, and doing it when the menu appears spends that pass at the one moment
+/// the player is watching an empty menu waiting for the entry.
+///
+/// Call it repeatedly while the game loads. It returns false until the classes it needs
+/// exist, and does nothing once it has succeeded.
+[[nodiscard]] bool WarmMenuButtonPlan(const ObjectArray& objects);
+
 /// Applies a resolved plan. Must run on the game thread.
 [[nodiscard]] Result ApplyMenuButtonPlan(const MenuButtonPlan& plan, std::string_view label,
                                          std::uintptr_t& out_button);

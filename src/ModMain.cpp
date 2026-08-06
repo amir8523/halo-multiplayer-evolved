@@ -1207,6 +1207,34 @@ void OnMultiplayerClicked() {
         return;
     }
 
+    // Last chance to know what to fold away.
+    //
+    // The fold list is built when the menu is decorated, and if that ever fails to happen
+    // the lobby opens with the frontend's own panels still drawn over it: the fireteam
+    // sits on top of the lobby, visible and audible. That is a bad enough outcome to be
+    // worth one scan here rather than trusting the list is populated, and it costs nothing
+    // in the ordinary case because the list is already there.
+    if (g_lobby_ui.also_fold.empty()) {
+        MPE_LOG_WARN("the fold list is empty at open; collecting it now so the frontend's "
+                    "panels do not stay on screen over the lobby");
+        std::lock_guard lock(g_state_mutex);
+        if (g_state && g_state->objects.has_value()) {
+            std::vector<std::uintptr_t> beside;
+            g_state->objects->ForEach([&](const unreal::ObjectInfo& object) {
+                if (object.name.rfind("Default__", 0) == 0) {
+                    return true;
+                }
+                if (object.class_name.rfind("WBP_Squad", 0) == 0 ||
+                    object.class_name == "WBP_MeteoriteUILayout_C" ||
+                    object.class_name.rfind("WBP_MeteoriteBoundActionBar", 0) == 0) {
+                    beside.push_back(object.address);
+                }
+                return true;
+            });
+            g_lobby_ui.also_fold = beside;
+        }
+    }
+
     unreal::LobbyUIContext ui = g_lobby_ui;
     if (const Result bound = unreal::BindLobbyMenu(g_live_menu, ui); !bound.ok()) {
         MPE_LOG_WARN("the lobby cannot attach to menu 0x{:X}: {}", g_live_menu,
@@ -2235,6 +2263,9 @@ void MaintainMainMenuButton() {
         // The lobby must not attach to a menu that has gone away. It builds perfectly
         // against a dead one and draws nothing, which looks exactly like a broken button.
         g_live_menu = 0;
+        // The widgets beside the old menu went with it. Cleared so the next menu collects
+        // its own, rather than folding away addresses that no longer belong to anything.
+        g_lobby_ui.also_fold.clear();
     }
 
     // Finding the menu is a plain memory scan, so the cheap check happens every time and
@@ -2267,11 +2298,16 @@ void MaintainMainMenuButton() {
         }
         s_skipped_scans = 0;
         s_last_count    = count;
-        // The menu, and the panels the frontend draws beside it rather than inside it.
+        // The menu, and the panels the frontend draws beside it rather than inside it,
+        // in one pass.
         //
-        // The fireteam list survives collapsing the menu, so it is not part of it. It is
-        // gathered here, in the pass that is already being made, rather than in a scan of
-        // its own when the lobby opens.
+        // Both are collected here on purpose. Deferring the panels to a later poll to let
+        // this pass stop early looked like a clean saving and was not: the function returns
+        // early once the menu is decorated, so the later poll never came, and the lobby
+        // opened with an empty fold list. The fireteam panel then stayed on screen over the
+        // lobby, which is the exact bug this list exists to prevent.
+        //
+        // The fireteam list survives collapsing the menu, so it is not part of it.
         std::vector<std::uintptr_t> beside;
         g_state->objects->ForEach([&](const unreal::ObjectInfo& object) {
             if (object.name.rfind("Default__", 0) == 0) {
@@ -2331,6 +2367,14 @@ void MaintainMainMenuButton() {
         if (!unreal::DetectCallLayout(*g_state->objects, layout).ok()) {
             return;
         }
+        // Deliberately not warmed here.
+        //
+        // The button class and the player controller do not exist until the frontend is
+        // built, which is the same moment the menu appears, so an attempt before that
+        // cannot succeed and costs a full pass over the object array to fail. Tried once
+        // per poll it was a scan a second for the whole of the game's loading.
+        //
+        // It is resolved on the one pass below instead, which has to happen anyway.
         // One retry, only for the font.
         //
         // The handles are resolved before the frontend is built, which is what makes the
