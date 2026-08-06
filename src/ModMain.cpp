@@ -262,6 +262,11 @@ int                  g_selected_server = 0;
 /// Remembering it means the player's click is honoured a moment later rather than lost.
 bool g_invite_pending = false;
 
+/// True when the pool and the object array were read from the static image rather than
+/// searched for. It decides whether the slow search, and the waiting that exists only to
+/// schedule that search safely, need to happen at all.
+bool g_reflection_was_fast = false;
+
 /// The invite list, as it is currently shown.
 ///
 /// Read from Steam when a slot is pressed rather than continuously: the friends list only
@@ -729,7 +734,20 @@ void TickLoop() {
 
         // Kept current while a session is up: the name, mode and map a player picks have to
         // reach the lobby's metadata or nobody browsing can tell one game from another.
-        PublishSessionDetails();
+        //
+        // Twice a second rather than sixty times. It reads the session under the state
+        // lock and formats a summary to compare against the last one, and the lock it
+        // takes is the same one the game thread's callbacks need. Nothing it publishes
+        // can change faster than a player can press a button, so the other fifty eight
+        // passes a second were contention bought for nothing.
+        {
+            static auto s_last_publish = std::chrono::steady_clock::time_point{};
+            const auto  now            = std::chrono::steady_clock::now();
+            if (now - s_last_publish >= std::chrono::milliseconds(500)) {
+                s_last_publish = now;
+                PublishSessionDetails();
+            }
+        }
 
         // A slot pressed before the lobby finished being created is honoured here, once it
         // exists, rather than being dropped.
@@ -738,7 +756,18 @@ void TickLoop() {
         }
 
         RefreshLobbyStatus();
-        RefreshLobbyRoster();
+
+        // Four times a second. Somebody joining should appear promptly, and a quarter of
+        // a second is promptly; copying the roster and building a comparison string sixty
+        // times a second under the state lock is not what makes it feel that way.
+        {
+            static auto s_last_roster = std::chrono::steady_clock::time_point{};
+            const auto  now           = std::chrono::steady_clock::now();
+            if (now - s_last_roster >= std::chrono::milliseconds(250)) {
+                s_last_roster = now;
+                RefreshLobbyRoster();
+            }
+        }
 
         // The name is picked up on a short interval rather than only when a match starts.
         //
@@ -951,6 +980,7 @@ void TickLoop() {
 }
 
 void ResolveUnrealObjects();
+void DetectPropertyLayout();
 
 /// Adds a boolean field to the change watch list.
 ///
@@ -2096,6 +2126,18 @@ void MaintainMainMenuButton() {
     static std::uintptr_t s_decorated_menu = 0;
     static auto           s_last_check     = std::chrono::steady_clock::time_point{};
 
+    // Once a second, and not more often, however tempting it is.
+    //
+    // Establishing that the menu is not there yet costs a pass over the whole object
+    // array, resolving a name for every object in it. Polling that four times a second to
+    // shave a few hundred milliseconds off when the entry appears was measured against
+    // this game and was catastrophic: the process was already saturating four cores
+    // compiling shaders, and adding four full scans a second on top pushed the time to
+    // reach the main menu from around twenty five seconds to over five minutes.
+    //
+    // The entry cannot appear before the menu does, and the menu cannot appear until the
+    // game has finished the work this would have been stealing time from. A second of
+    // latency after that is invisible; making the game load slower to remove it is not.
     const auto now = std::chrono::steady_clock::now();
     if (now - s_last_check < std::chrono::seconds(1)) {
         return;
@@ -2240,6 +2282,15 @@ void MaintainMainMenuButton() {
         g_lobby_ui.also_fold = beside;
     }
 
+    // When the menu first appeared, so the delay a player actually sees can be a measured
+    // number rather than an impression. Everything before this is the game's own loading;
+    // everything after it is the mod's.
+    static std::chrono::steady_clock::time_point s_menu_first_seen{};
+    if (menu != 0 && s_menu_first_seen == std::chrono::steady_clock::time_point{}) {
+        s_menu_first_seen = now;
+        MPE_LOG_INFO("main menu 0x{:X} exists; placing the multiplayer entry", menu);
+    }
+
     if (menu == 0 || menu == s_decorated_menu) {
         return;
     }
@@ -2294,7 +2345,12 @@ void MaintainMainMenuButton() {
         g_live_menu          = menu;
         g_multiplayer_button = button;
         g_screen             = MultiplayerScreen::Home;
-        MPE_LOG_INFO("multiplayer entry added to main menu 0x{:X}", menu);
+        MPE_LOG_INFO("multiplayer entry added to main menu 0x{:X}, {} ms after the menu "
+                    "appeared",
+                    menu,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - s_menu_first_seen)
+                        .count());
 
         // Start listening on the new button straight away. The previous one went away with
         // the previous menu, so the watch has to follow the current widget.
@@ -2452,6 +2508,32 @@ void SweepForCombatFields(const std::unordered_map<std::string, unreal::ObjectIn
 /// engine's intrinsic names, so dumping them shows unambiguously whether the location
 /// is right. A wrong location produces garbage, not plausible names.
 void ResolveUnrealReflection() {
+    // Nothing is searched for twice.
+    //
+    // The fast path reads both globals straight out of the instructions that reference
+    // them, and it succeeds in about two seconds. This function then located the same two
+    // things again by scanning: half a million name slots and a sweep for the object
+    // array, taking around fifteen seconds and overwriting a pool and an array that were
+    // already correct and already in use.
+    //
+    // The waste was the smaller half of the problem. That scanning probes hundreds of
+    // thousands of addresses and takes the process address space lock to do it, competing
+    // with the game's own asset loader at exactly the moment the game is loading, which is
+    // the contention this file already documents as the way the mod breaks somebody's
+    // startup. Doing it for an answer we have is indefensible.
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (g_state && g_state->names.has_value() && g_state->objects.has_value()) {
+            MPE_LOG_INFO("UE reflection was already resolved by the fast path; skipping the "
+                        "search entirely");
+            g_reflection_was_fast = true;
+        }
+    }
+    if (g_reflection_was_fast) {
+        DetectPropertyLayout();
+        return;
+    }
+
     Expected<unreal::NamePool> pool = unreal::NamePool::Locate();
     if (!pool.ok()) {
         MPE_LOG_ERROR("UE reflection unavailable: {}", pool.message());
@@ -2504,6 +2586,106 @@ void ResolveUnrealReflection() {
 /// objects whose own name and whose class name both resolve through the name pool to
 /// plausible identifiers. That is the test, and it is why the locator scores candidates
 /// instead of accepting the first structurally valid one.
+/// The structs whose field offsets the mod actually reads.
+constexpr const char* kWantedStructs[] = {
+    "BlamGameEngineBaseVariantStorage", "BlamGameEngineSocialOptions",
+    "BlamGameEnginePlayerTraits",       "BlamGameEngineCampaignVariantStorage",
+    "BlamScenarioGameOptions",          "BlamGameEngineTimer",
+    "BlamPlayerRespawn",                "BlamSocialOptionsFlags",
+};
+
+/// Works out where a UProperty keeps its offset, size and next pointer on this build.
+///
+/// Split out of the locating pass so both routes into it share one implementation. The
+/// fast path already has the pool and the array and needs only this, and doing it here
+/// rather than duplicating it is what makes skipping the search safe.
+///
+/// The documented UE5 layout is wrong on this build: reading BlamScenarioGameOptions with
+/// it reports size 0 and no fields even though the struct name resolves correctly. So the
+/// chain is detected from live structs and then validated, because a wrong offset quietly
+/// pointing at the wrong field is the worst outcome available.
+void DetectPropertyLayout() {
+    const unreal::NamePool*    names   = nullptr;
+    const unreal::ObjectArray* objects = nullptr;
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (!g_state || !g_state->names.has_value() || !g_state->objects.has_value()) {
+            return;
+        }
+        // Both live in g_state for the process lifetime, so pointers taken under the lock
+        // stay valid once it is released, which keeps the tick thread unblocked.
+        names   = &*g_state->names;
+        objects = &*g_state->objects;
+    }
+
+    // The types have to exist before their layout can be read from them. UE registers
+    // UObjects progressively, so this is a condition rather than a delay: an early look
+    // found none of them purely because the game had not reached them yet.
+    std::unordered_map<std::string, unreal::ObjectInfo> located;
+    (void)pacing::WaitFor(
+        "waiting for the target structs to be registered",
+        [&]() {
+            located.clear();
+            objects->ForEach([&](const unreal::ObjectInfo& object) {
+                for (const char* wanted : kWantedStructs) {
+                    if (object.name == wanted && !located.contains(object.name)) {
+                        located.emplace(object.name, object);
+                    }
+                }
+                return located.size() < std::size(kWantedStructs);
+            });
+            return located.size() >= std::size(kWantedStructs);
+        },
+        []() { return !g_running_or_starting.load(std::memory_order_acquire); },
+        std::chrono::seconds(1), std::chrono::seconds(3));
+
+    MPE_LOG_INFO("located {} of {} target struct(s) among {} object(s)", located.size(),
+                std::size(kWantedStructs), objects->Count());
+    if (located.empty()) {
+        MPE_LOG_ERROR("no target struct appeared; the game may not have finished starting");
+        return;
+    }
+
+    unreal::Reflection          reflection(*names);
+    std::vector<std::uintptr_t> candidates;
+    candidates.reserve(located.size());
+    for (const auto& [name, object] : located) {
+        candidates.push_back(object.address);
+    }
+
+    const unreal::ReflectionLayout detected = reflection.DetectLayout(candidates);
+    if (detected.detected) {
+        reflection.SetLayout(detected);
+        MPE_LOG_INFO("  UE layout detected: {}", detected.Describe());
+    } else {
+        MPE_LOG_WARN("  UE layout detection found no property chain; trying documented offsets");
+    }
+
+    bool layout_ok = false;
+    for (const auto& [name, object] : located) {
+        std::string  report;
+        const Result verified = reflection.VerifyLayout(object.address, report);
+        MPE_LOG_INFO("  layout check: {}", report);
+        if (verified.ok()) {
+            layout_ok = true;
+            break;
+        }
+    }
+    if (!layout_ok) {
+        MPE_LOG_ERROR("  UE property layout could not be validated against any target struct");
+        MPE_LOG_ERROR("  offsets will not be trusted; reflection reads are disabled");
+        if (!candidates.empty()) {
+            MPE_LOG_INFO("{}", reflection.ProbeStructLayout(candidates.front()));
+        }
+        return;
+    }
+
+    std::lock_guard lock(g_state_mutex);
+    if (g_state) {
+        g_state->reflection = reflection;
+    }
+}
+
 void ResolveUnrealObjects() {
     // The name pool lives in g_state for the process lifetime, so a raw pointer taken
     // under the lock stays valid. Taking it this way lets the heavy scanning below run
@@ -2601,56 +2783,16 @@ void ResolveUnrealObjects() {
         },
         64);
 
+    // Shared with the fast path rather than written twice.
+    DetectPropertyLayout();
+
     unreal::Reflection reflection(*names);
-
-    // Detect the real offsets rather than trusting the documented ones. The documented
-    // UE5 layout is wrong on this build: reading BlamScenarioGameOptions with it
-    // reported size 0 and no fields even though the struct name resolved correctly.
-    std::vector<std::uintptr_t> candidates;
-    candidates.reserve(located.size());
-    for (const auto& [name, object] : located) {
-        candidates.push_back(object.address);
-    }
-
-    const unreal::ReflectionLayout detected = reflection.DetectLayout(candidates);
-    if (detected.detected) {
-        reflection.SetLayout(detected);
-        MPE_LOG_INFO("  UE layout detected: {}", detected.Describe());
-    } else {
-        MPE_LOG_WARN("  UE layout detection found no property chain; trying documented offsets");
-    }
-
-    // Validate whatever layout we ended up with. A struct reporting fields outside its
-    // own size means an offset is wrong, and a wrong offset silently pointing at the
-    // wrong field is the worst possible outcome.
-    bool layout_ok = false;
-    for (const auto& [name, object] : located) {
-        std::string report;
-        const Result verified = reflection.VerifyLayout(object.address, report);
-        MPE_LOG_INFO("  layout check: {}", report);
-        if (verified.ok()) {
-            layout_ok = true;
-            break;
-        }
-    }
-
-    if (!layout_ok) {
-        MPE_LOG_ERROR("  UE property layout could not be validated against any target struct");
-        MPE_LOG_ERROR("  offsets will not be trusted; reflection reads are disabled");
-        // Emit the raw data needed to work out the layout by hand, for the first
-        // candidate. This is the artifact that makes the next attempt cheap.
-        if (!candidates.empty()) {
-            MPE_LOG_INFO("{}", reflection.ProbeStructLayout(candidates.front()));
-        }
-        return;
-    }
-
     {
         std::lock_guard lock(g_state_mutex);
-        if (!g_state) {
+        if (!g_state || !g_state->reflection.has_value()) {
             return;
         }
-        g_state->reflection = reflection;
+        reflection = *g_state->reflection;
     }
 
     // Dump the fields. This is the payoff: named fields with real offsets.
@@ -3117,7 +3259,8 @@ void Initialize() {
     // Reading both globals from instructions that reference them needs only the static
     // image, so it runs now and costs a moment. If it does not work out, the slower search
     // further down still runs and nothing is lost but the head start.
-    if (TryFastReflection()) {
+    g_reflection_was_fast = TryFastReflection();
+    if (g_reflection_was_fast) {
         MPE_LOG_INFO("UE reflection ready early; the menu entry can be in place before the "
                     "menu is first drawn");
 
@@ -3191,19 +3334,30 @@ void Initialize() {
     // process to then go quiet means the asset streaming that follows has finished too.
     // On a fast machine both pass in seconds; on a slow one they take as long as they
     // take, and neither can expire and leave the scan running at the wrong moment.
-    if (!pacing::WaitFor("waiting for the game window", &HasGameWindow, aborted)) {
-        MPE_LOG_WARN("the game window never appeared; skipping UE reflection");
-        return;
-    }
-    MPE_LOG_INFO("game window is up; waiting for loading to settle before scanning");
+    // Both gates exist to keep the heap scan away from the asset loader. When there is no
+    // heap scan to keep away, waiting for them buys nothing and costs about twenty
+    // seconds, which is twenty seconds of the mod being unusable for no reason.
+    //
+    // The fast path resolves the pool and the array from the static image in about two
+    // seconds and touches almost nothing while doing it. All that is left afterwards is
+    // reading a property chain out of a handful of live structs, which is cheap enough
+    // that scheduling it around the loader would be superstition.
+    const bool need_the_search = !g_reflection_was_fast;
+    if (need_the_search) {
+        if (!pacing::WaitFor("waiting for the game window", &HasGameWindow, aborted)) {
+            MPE_LOG_WARN("the game window never appeared; skipping UE reflection");
+            return;
+        }
+        MPE_LOG_INFO("game window is up; waiting for loading to settle before scanning");
 
-    if (!pacing::WaitForQuiet("waiting for the game to finish loading", aborted)) {
-        MPE_LOG_WARN("the game never went quiet; skipping UE reflection rather than "
-                    "competing with a machine that is still working");
-        return;
+        if (!pacing::WaitForQuiet("waiting for the game to finish loading", aborted)) {
+            MPE_LOG_WARN("the game never went quiet; skipping UE reflection rather than "
+                        "competing with a machine that is still working");
+            return;
+        }
+        MPE_LOG_INFO("the game is idle; starting UE reflection");
     }
 
-    MPE_LOG_INFO("the game is idle; starting UE reflection");
     ResolveUnrealReflection();
 }
 
